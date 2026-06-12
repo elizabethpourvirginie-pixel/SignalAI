@@ -105,6 +105,14 @@ canvas{display:block;width:100%;}
 .trade-detail{font-family:'DM Mono',monospace;font-size:9px;color:#555;margin-bottom:4px;}
 .trade-review{font-family:'DM Sans',sans-serif;font-size:11px;color:#999;line-height:1.5;}
 .trade-del{font-family:'DM Mono',monospace;font-size:8px;color:#FF4757;background:none;border:none;cursor:pointer;padding:2px 4px;opacity:0.6;}
+.trade-chart-box{border-radius:8px;overflow:hidden;border:1px solid rgba(255,255,255,0.06);background:#0D0D12;margin:8px 0;}
+.trade-status{font-family:'DM Mono',monospace;font-size:8px;padding:2px 7px;border-radius:3px;letter-spacing:0.08em;}
+.news-section{margin-top:8px;border-top:1px solid rgba(255,255,255,0.05);padding-top:8px;}
+.news-label{font-family:'DM Mono',monospace;font-size:8px;color:#555;letter-spacing:0.12em;text-transform:uppercase;margin-bottom:6px;}
+.news-item{display:block;text-decoration:none;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,0.02);margin-bottom:4px;border:1px solid rgba(255,255,255,0.04);}
+.news-title{font-family:'DM Sans',sans-serif;font-size:11px;color:#C0C0D0;line-height:1.4;}
+.news-meta{font-family:'DM Mono',monospace;font-size:8px;color:#555;margin-top:3px;}
+.refresh-trade{font-family:'DM Mono',monospace;font-size:8px;color:#00D4AA;background:none;border:1px solid rgba(0,212,170,0.3);border-radius:4px;cursor:pointer;padding:2px 8px;}
 </style>
 </head>
 <body>
@@ -146,8 +154,11 @@ canvas{display:block;width:100%;}
     <div class="journal-form">
       <input class="j-input" id="jAsset" placeholder="Asset (e.g. GOLD)"/>
       <select class="j-input" id="jDir"><option value="BUY">BUY</option><option value="SELL">SELL</option></select>
+      <select class="j-input" id="jStatus" onchange="toggleStatus()"><option value="OPEN">OPEN (still running)</option><option value="CLOSED">CLOSED (already exited)</option></select>
       <input class="j-input" id="jEntry" placeholder="Entry price" inputmode="decimal"/>
-      <input class="j-input" id="jExit" placeholder="Exit price" inputmode="decimal"/>
+      <input class="j-input" id="jTP" placeholder="Take profit target" inputmode="decimal"/>
+      <input class="j-input" id="jSL" placeholder="Stop loss (optional)" inputmode="decimal"/>
+      <input class="j-input" id="jExit" placeholder="Exit price" inputmode="decimal" style="display:none"/>
       <button class="j-add" onclick="addTrade()">+ ANALYZE TRADE</button>
     </div>
     <div id="journalList"></div>
@@ -565,39 +576,86 @@ function matchKnownAsset(name){
   return all.find(a=>a.toUpperCase().replace(/[\s\/()]+/g,"").includes(n)||n.includes(a.toUpperCase().replace(/[\s\/()]+/g,"")))||null;
 }
 
+function toggleStatus(){
+  const open=document.getElementById("jStatus").value==="OPEN";
+  document.getElementById("jTP").style.display=open?"block":"none";
+  document.getElementById("jSL").style.display=open?"block":"none";
+  document.getElementById("jExit").style.display=open?"none":"block";
+}
+
 async function addTrade(){
   const asset=document.getElementById("jAsset").value.trim().toUpperCase();
   const dir=document.getElementById("jDir").value;
+  const status=document.getElementById("jStatus").value;
   const entry=parseFloat(document.getElementById("jEntry").value);
-  const exit=parseFloat(document.getElementById("jExit").value);
-  if(!asset||isNaN(entry)||isNaN(exit)){alert("Fill in asset, entry and exit prices");return;}
   const btn=document.querySelector(".j-add");
+
+  if(!asset||isNaN(entry)){alert("Fill in asset and entry price");return;}
+
+  let trade={id:Date.now(),asset,dir,entry,status};
+
+  if(status==="CLOSED"){
+    const exit=parseFloat(document.getElementById("jExit").value);
+    if(isNaN(exit)){alert("Enter the exit price for a closed trade");return;}
+    trade.exit=exit;
+  }else{
+    const tp=parseFloat(document.getElementById("jTP").value);
+    const sl=parseFloat(document.getElementById("jSL").value);
+    if(isNaN(tp)){alert("Enter your take profit target for an open trade");return;}
+    trade.tp=tp;
+    if(!isNaN(sl))trade.sl=sl;
+  }
+
   btn.textContent="ANALYZING…";btn.disabled=true;
 
-  // Try to fetch real market data for context
-  let quote=null;
+  // Fetch real market data + news for context
   const known=matchKnownAsset(asset);
   if(known){
     try{
-      const res=await fetch(`${SERVER}/api/quote/${encodeURIComponent(known)}`);
-      const json=await res.json();
-      if(json.ok)quote=json.data;
+      const [aRes,nRes]=await Promise.all([
+        fetch(`${SERVER}/api/analyze/${encodeURIComponent(known)}`).then(r=>r.json()),
+        fetch(`${SERVER}/api/news/${encodeURIComponent(known)}`).then(r=>r.json()).catch(()=>({ok:false})),
+      ]);
+      if(aRes.ok){
+        trade.qPrice=aRes.quote.price;
+        trade.qHigh=aRes.quote.high;
+        trade.qLow=aRes.quote.low;
+        trade.qChangePct=aRes.quote.changePct;
+        trade.bars=aRes.bars;
+        trade.fetchedAt=Date.now();
+      }
+      if(nRes.ok)trade.news=nRes.news;
     }catch(e){}
   }
 
   const trades=getTrades();
-  trades.unshift({id:Date.now(),asset,dir,entry,exit,
-    qPrice:quote?quote.price:null,
-    qHigh:quote?quote.high:null,
-    qLow:quote?quote.low:null,
-    qChangePct:quote?quote.changePct:null});
+  trades.unshift(trade);
   saveTrades(trades);
   document.getElementById("jAsset").value="";
   document.getElementById("jEntry").value="";
+  document.getElementById("jTP").value="";
+  document.getElementById("jSL").value="";
   document.getElementById("jExit").value="";
   btn.textContent="+ ANALYZE TRADE";btn.disabled=false;
   renderJournal();
 }
+
+async function refreshTrade(id){
+  const trades=getTrades();
+  const t=trades.find(x=>x.id===id);
+  if(!t)return;
+  const known=matchKnownAsset(t.asset);
+  if(!known)return;
+  try{
+    const aRes=await fetch(`${SERVER}/api/analyze/${encodeURIComponent(known)}`).then(r=>r.json());
+    if(aRes.ok){
+      t.qPrice=aRes.quote.price;t.qHigh=aRes.quote.high;t.qLow=aRes.quote.low;
+      t.qChangePct=aRes.quote.changePct;t.bars=aRes.bars;t.fetchedAt=Date.now();
+      saveTrades(trades);renderJournal();
+    }
+  }catch(e){}
+}
+
 function delTrade(id){
   saveTrades(getTrades().filter(t=>t.id!==id));
   renderJournal();
@@ -648,26 +706,181 @@ function reviewTrade(t,plPct){
 
   return parts.join(" ");
 }
+function openReview(t){
+  const parts=[];
+  const dir=t.dir;
+  const isLong=dir==="BUY";
+
+  // 1. Setup coherence check — catches "sold at 35, TP at 45"
+  if(t.tp!==undefined){
+    const tpWrongSide=(isLong&&t.tp<=t.entry)||(!isLong&&t.tp>=t.entry);
+    if(tpWrongSide){
+      parts.push(`<b style="color:#FF4757">⚠ SETUP ERROR:</b> You ${isLong?"bought":"sold"} at ${fmtPrice(t.entry)} but your take profit is ${fmtPrice(t.tp)} — ${isLong?"below":"above"} your entry. For a ${dir}, the TP must be ${isLong?"ABOVE":"BELOW"} entry. As placed, this target can only be reached at a loss. Fix the TP or close the position.`);
+    }
+  }
+  if(t.sl!==undefined){
+    const slWrongSide=(isLong&&t.sl>=t.entry)||(!isLong&&t.sl<=t.entry);
+    if(slWrongSide){
+      parts.push(`<b style="color:#FF4757">⚠ STOP ERROR:</b> Your stop loss ${fmtPrice(t.sl)} is on the wrong side of entry for a ${dir}. It would trigger immediately or never protect you.`);
+    }
+  }
+
+  if(t.qPrice){
+    // 2. Unrealized P/L
+    const raw=isLong?(t.qPrice-t.entry)/t.entry:(t.entry-t.qPrice)/t.entry;
+    const plPct=raw*100;
+    const c=plPct>=0?"#00D4AA":"#FF4757";
+    parts.push(`<b>Live position:</b> price is now ${fmtPrice(t.qPrice)} → your ${dir} is <b style="color:${c}">${plPct>=0?"+":""}${plPct.toFixed(2)}%</b> unrealized.`);
+
+    // 3. Direction of travel from real bars
+    if(t.bars&&t.bars.length>10){
+      const recent=t.bars.slice(-10);
+      const slope=recent[recent.length-1].c-recent[0].c;
+      const movingUp=slope>0;
+      const withYou=(isLong&&movingUp)||(!isLong&&!movingUp);
+      if(withYou){
+        parts.push(`Over the last ${recent.length} minutes price has been moving <b style="color:#00D4AA">in your favor</b> (${movingUp?"rising":"falling"}). The chart below shows the path.`);
+      }else{
+        parts.push(`Over the last ${recent.length} minutes price has been moving <b style="color:#FF4757">against your position</b> (${movingUp?"rising":"falling"} while you are ${isLong?"long":"short"}). This does not mean panic — it means check your plan: if your stop loss is set, let it do its job. If you have no stop, that is the real emergency: decide NOW the price at which you accept being wrong.`);
+      }
+    }
+
+    // 4. Distance to TP and SL
+    if(t.tp!==undefined&&!((isLong&&t.tp<=t.entry)||(!isLong&&t.tp>=t.entry))){
+      const tpDist=Math.abs(t.tp-t.qPrice)/t.qPrice*100;
+      parts.push(`Distance to TP: <b>${tpDist.toFixed(2)}%</b>${t.sl!==undefined?` · Distance to SL: <b>${(Math.abs(t.sl-t.qPrice)/t.qPrice*100).toFixed(2)}%</b>`:""}.`);
+    }
+
+    // 5. Honest recovery math if losing
+    if(plPct<-1){
+      const lossFrac=Math.abs(plPct)/100;
+      const reqGain=(lossFrac/(1-lossFrac))*100;
+      parts.push(`<b>Recovery math (honest version):</b> a ${Math.abs(plPct).toFixed(1)}% loss needs a <b>${reqGain.toFixed(1)}%</b> gain just to break even — losses always need bigger wins to undo. The disciplined path back is NOT one big revenge trade; it is many small, high-quality setups with 1-2% risk each. Chasing it back in one trade is how a ${Math.abs(plPct).toFixed(0)}% hole becomes a blown account.`);
+    }
+  }else{
+    parts.push(`Could not fetch live data for "${t.asset}" — use one of the asset names from the lists above (e.g. GOLD, BTC/USD, AAPL) for live tracking.`);
+  }
+  return parts.join("<br/><br/>");
+}
+
+function drawTradeChart(canvasId,t){
+  const canvas=document.getElementById(canvasId);
+  if(!canvas||!t.bars||t.bars.length<2)return;
+  const dpr=window.devicePixelRatio||1;
+  const W=canvas.offsetWidth||300;const H=140;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  const ctx=canvas.getContext('2d');
+  ctx.scale(dpr,dpr);
+  const closes=t.bars.map(b=>b.c);
+  const lvls=[t.entry];
+  if(t.tp!==undefined)lvls.push(t.tp);
+  if(t.sl!==undefined)lvls.push(t.sl);
+  const allVals=[...closes,...lvls];
+  const minP=Math.min(...allVals)*0.9985;
+  const maxP=Math.max(...allVals)*1.0015;
+  const range=maxP-minP||1;
+  const PL=4,PR=6,PT=8,PB=14;
+  const cW=W-PL-PR,cH=H-PT-PB;
+  const toX=(i)=>PL+(i/(closes.length-1))*cW;
+  const toY=(p)=>PT+(1-(p-minP)/range)*cH;
+  ctx.fillStyle="#0D0D12";ctx.fillRect(0,0,W,H);
+  function lvl(price,color,label,dashed){
+    const y=toY(price);
+    if(y<PT-2||y>PT+cH+2)return;
+    ctx.save();ctx.strokeStyle=color;ctx.lineWidth=1;ctx.globalAlpha=0.8;
+    if(dashed)ctx.setLineDash([4,3]);
+    ctx.beginPath();ctx.moveTo(PL,y);ctx.lineTo(W-PR,y);ctx.stroke();
+    ctx.setLineDash([]);
+    const txt=label+" "+fmtPrice(price);
+    ctx.font="bold 6.5px monospace";
+    const tw=ctx.measureText(txt).width+8;
+    ctx.fillStyle=color+"33";
+    ctx.beginPath();ctx.roundRect(PL+2,y-6,tw,12,2);ctx.fill();
+    ctx.strokeStyle=color;ctx.lineWidth=0.7;
+    ctx.beginPath();ctx.roundRect(PL+2,y-6,tw,12,2);ctx.stroke();
+    ctx.fillStyle=color;ctx.globalAlpha=1;ctx.textAlign="left";
+    ctx.fillText(txt,PL+6,y+3);
+    ctx.restore();
+  }
+  if(t.sl!==undefined)lvl(t.sl,"#FF4757","SL",true);
+  lvl(t.entry,"#FFB347","ENTRY",false);
+  if(t.tp!==undefined)lvl(t.tp,"#7EB8FF","TP",true);
+  // price line
+  const isLong=t.dir==="BUY";
+  const raw=t.qPrice?(isLong?(t.qPrice-t.entry):(t.entry-t.qPrice)):0;
+  const lineColor=raw>=0?"#00D4AA":"#FF4757";
+  const grad=ctx.createLinearGradient(0,PT,0,PT+cH);
+  grad.addColorStop(0,lineColor+"44");grad.addColorStop(1,lineColor+"00");
+  ctx.beginPath();ctx.moveTo(toX(0),toY(closes[0]));
+  for(let i=1;i<closes.length;i++)ctx.lineTo(toX(i),toY(closes[i]));
+  ctx.lineTo(toX(closes.length-1),PT+cH);ctx.lineTo(toX(0),PT+cH);ctx.closePath();
+  ctx.fillStyle=grad;ctx.fill();
+  ctx.beginPath();ctx.moveTo(toX(0),toY(closes[0]));
+  for(let i=1;i<closes.length;i++)ctx.lineTo(toX(i),toY(closes[i]));
+  ctx.strokeStyle=lineColor;ctx.lineWidth=1.8;ctx.stroke();
+  const lx=toX(closes.length-1),ly=toY(closes[closes.length-1]);
+  ctx.beginPath();ctx.arc(lx,ly,3.5,0,Math.PI*2);ctx.fillStyle=lineColor;ctx.fill();
+}
+
+function timeAgo(ms){
+  if(!ms)return"";
+  const m=Math.floor((Date.now()-ms)/60000);
+  if(m<60)return m+"m ago";
+  const h=Math.floor(m/60);
+  if(h<24)return h+"h ago";
+  return Math.floor(h/24)+"d ago";
+}
+
 function renderJournal(){
   const list=document.getElementById("journalList");
   const trades=getTrades();
   if(trades.length===0){list.innerHTML="";return;}
   list.innerHTML=trades.map(t=>{
-    const raw=t.dir==="BUY"?(t.exit-t.entry)/t.entry:(t.entry-t.exit)/t.entry;
-    const plPct=raw*100;
-    const c=plPct>0?"#00D4AA":plPct<0?"#FF4757":"#A0A0B8";
-    return `<div class="trade-card">
-      <div class="trade-head">
-        <span class="trade-title">${t.asset} · ${t.dir}</span>
-        <div style="display:flex;align-items:center;gap:8px">
-          <span class="trade-pl" style="color:${c}">${plPct>0?"+":""}${plPct.toFixed(2)}%</span>
-          <button class="trade-del" onclick="delTrade(${t.id})">✕</button>
+    if(t.status==="OPEN"){
+      const newsHtml=(t.news&&t.news.length)?`
+        <div class="news-section">
+          <div class="news-label">Market Evidence — Latest Real News</div>
+          ${t.news.map(n=>`<a class="news-item" href="${n.link}" target="_blank">
+            <div class="news-title">${n.title}</div>
+            <div class="news-meta">${n.publisher||""} · ${timeAgo(n.time)}</div>
+          </a>`).join("")}
+        </div>`:"";
+      return `<div class="trade-card">
+        <div class="trade-head">
+          <span class="trade-title">${t.asset} · ${t.dir} <span class="trade-status" style="background:rgba(255,179,71,0.12);color:#FFB347;border:1px solid rgba(255,179,71,0.25)">OPEN</span></span>
+          <div style="display:flex;align-items:center;gap:6px">
+            <button class="refresh-trade" onclick="refreshTrade(${t.id})">↻ UPDATE</button>
+            <button class="trade-del" onclick="delTrade(${t.id})">✕</button>
+          </div>
         </div>
-      </div>
-      <div class="trade-detail">Entry ${fmtPrice(t.entry)} → Exit ${fmtPrice(t.exit)}</div>
-      <div class="trade-review">${reviewTrade(t,plPct)}</div>
-    </div>`;
+        <div class="trade-detail">Entry ${fmtPrice(t.entry)}${t.tp!==undefined?" · TP "+fmtPrice(t.tp):""}${t.sl!==undefined?" · SL "+fmtPrice(t.sl):""}${t.fetchedAt?" · data "+timeAgo(t.fetchedAt):""}</div>
+        ${t.bars&&t.bars.length>1?`<div class="trade-chart-box"><canvas id="tc_${t.id}" style="height:140px;width:100%"></canvas></div>`:""}
+        <div class="trade-review">${openReview(t)}</div>
+        ${newsHtml}
+      </div>`;
+    }else{
+      const raw=t.dir==="BUY"?(t.exit-t.entry)/t.entry:(t.entry-t.exit)/t.entry;
+      const plPct=raw*100;
+      const col=plPct>0?"#00D4AA":plPct<0?"#FF4757":"#A0A0B8";
+      return `<div class="trade-card">
+        <div class="trade-head">
+          <span class="trade-title">${t.asset} · ${t.dir}</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="trade-pl" style="color:${col}">${plPct>0?"+":""}${plPct.toFixed(2)}%</span>
+            <button class="trade-del" onclick="delTrade(${t.id})">✕</button>
+          </div>
+        </div>
+        <div class="trade-detail">Entry ${fmtPrice(t.entry)} → Exit ${fmtPrice(t.exit)}</div>
+        <div class="trade-review">${reviewTrade(t,plPct)}</div>
+      </div>`;
+    }
   }).join("");
+  // Draw charts after DOM update
+  requestAnimationFrame(()=>{
+    trades.forEach(t=>{
+      if(t.status==="OPEN"&&t.bars)drawTradeChart(`tc_${t.id}`,t);
+    });
+  });
 }
 renderJournal();
 
