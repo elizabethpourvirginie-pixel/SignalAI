@@ -131,5 +131,25 @@ app.get('/api/scan/:cls', async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// ── Real news for an asset (Yahoo Finance search API) ──
+app.get('/api/news/:asset', async (req, res) => {
+  try {
+    const asset = decodeURIComponent(req.params.asset);
+    const ticker = SYMBOL_MAP[asset];
+    if (!ticker) return res.status(400).json({ ok: false, error: "Unknown asset" });
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&newsCount=6&quotesCount=0`;
+    const r = await fetch(url, { headers: { "User-Agent": UA } });
+    if (!r.ok) throw new Error(`News fetch error: ${r.status}`);
+    const json = await r.json();
+    const news = (json.news || []).slice(0, 4).map(n => ({
+      title: n.title,
+      publisher: n.publisher,
+      time: n.providerPublishTime ? n.providerPublishTime * 1000 : null,
+      link: n.link,
+    }));
+    res.json({ ok: true, news });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Signal AI server running on port ${PORT}`));
