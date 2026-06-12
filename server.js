@@ -107,5 +107,29 @@ app.get('/api/analyze/:asset', async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// ── Batched market scan (avoids parallel request storms) ──
+const CLASS_ASSETS = {
+  stocks:      ["AAPL","NVDA","MSFT","TSLA","AMZN","META","GOOGL","AMD"],
+  forex:       ["EUR/USD","GBP/USD","USD/JPY","AUD/USD","USD/CAD","EUR/GBP"],
+  crypto:      ["BTC/USD","ETH/USD","SOL/USD","BNB/USD","XRP/USD","ADA/USD"],
+  commodities: ["GOLD","SILVER","OIL (WTI)","BRENT","NATURAL GAS","COPPER"],
+};
+
+app.get('/api/scan/:cls', async (req, res) => {
+  try {
+    const assets = CLASS_ASSETS[req.params.cls];
+    if (!assets) return res.status(400).json({ ok: false, error: "Unknown class" });
+    const quotes = [];
+    // Fetch in batches of 2 with small delay to avoid Yahoo rate limits
+    for (let i = 0; i < assets.length; i += 2) {
+      const batch = assets.slice(i, i + 2);
+      const results = await Promise.allSettled(batch.map(a => getQuote(a)));
+      results.forEach(r => { if (r.status === "fulfilled") quotes.push(r.value); });
+      if (i + 2 < assets.length) await new Promise(r => setTimeout(r, 250));
+    }
+    res.json({ ok: true, quotes });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Signal AI server running on port ${PORT}`));
