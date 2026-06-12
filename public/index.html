@@ -80,6 +80,31 @@ canvas{display:block;width:100%;}
 .disclaimer{padding:14px 16px 0;}
 .disclaimer p{font-family:'DM Mono',monospace;font-size:8px;color:#333;line-height:1.6;text-align:center;letter-spacing:0.04em;}
 .mb14{margin-bottom:14px;}
+/* ── HIGH CONVICTION ── */
+.section-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.scan-btn{padding:6px 14px;border-radius:7px;border:1px solid rgba(0,212,170,0.35);background:rgba(0,212,170,0.1);color:#00D4AA;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.1em;cursor:pointer;}
+.scan-btn:disabled{opacity:0.4;}
+.section-note{font-family:'DM Mono',monospace;font-size:8px;color:#444;line-height:1.5;margin-bottom:8px;letter-spacing:0.03em;}
+.conv-card{display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:10px 12px;margin-bottom:6px;animation:fadeUp 0.4s ease;}
+.conv-rank{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;width:24px;}
+.conv-info{flex:1;padding:0 8px;}
+.conv-asset{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;color:#F0F0F0;}
+.conv-price{font-family:'DM Mono',monospace;font-size:9px;color:#666;margin-top:1px;}
+.conv-right{text-align:right;}
+.conv-change{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;}
+.conv-strength{font-family:'DM Mono',monospace;font-size:8px;color:#555;margin-top:1px;}
+/* ── TRADE JOURNAL ── */
+.journal-form{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;}
+.j-input{padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:#F0F0F0;font-family:'DM Mono',monospace;font-size:11px;outline:none;}
+.j-input::placeholder{color:#444;}
+.j-add{grid-column:1/-1;padding:10px;border-radius:8px;border:1px solid rgba(0,212,170,0.35);background:rgba(0,212,170,0.1);color:#00D4AA;font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;cursor:pointer;}
+.trade-card{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.07);border-radius:10px;padding:10px 12px;margin-bottom:6px;animation:fadeUp 0.4s ease;}
+.trade-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+.trade-title{font-family:'DM Mono',monospace;font-size:11px;font-weight:600;color:#F0F0F0;}
+.trade-pl{font-family:'DM Mono',monospace;font-size:12px;font-weight:600;}
+.trade-detail{font-family:'DM Mono',monospace;font-size:9px;color:#555;margin-bottom:4px;}
+.trade-review{font-family:'DM Sans',sans-serif;font-size:11px;color:#999;line-height:1.5;}
+.trade-del{font-family:'DM Mono',monospace;font-size:8px;color:#FF4757;background:none;border:none;cursor:pointer;padding:2px 4px;opacity:0.6;}
 </style>
 </head>
 <body>
@@ -104,6 +129,30 @@ canvas{display:block;width:100%;}
       <p class="empty-text">TAP AN ASSET ABOVE<br/>TO RUN AI ANALYSIS</p>
     </div>
   </div>
+
+  <!-- HIGH CONVICTION SCANNER -->
+  <div class="assets-section">
+    <div class="section-row">
+      <div class="section-label" style="margin-bottom:0">High Conviction — Strongest Movers</div>
+      <button class="scan-btn" id="scanBtn" onclick="scanMarkets()">⌖ SCAN</button>
+    </div>
+    <p class="section-note">Scans all markets in this category and ranks the strongest momentum right now. High probability — never guaranteed.</p>
+    <div id="convictionPanel"></div>
+  </div>
+
+  <!-- TRADE JOURNAL -->
+  <div class="assets-section">
+    <div class="section-label">Trade Journal — Analyze Your Trades</div>
+    <div class="journal-form">
+      <input class="j-input" id="jAsset" placeholder="Asset (e.g. GOLD)"/>
+      <select class="j-input" id="jDir"><option value="BUY">BUY</option><option value="SELL">SELL</option></select>
+      <input class="j-input" id="jEntry" placeholder="Entry price" inputmode="decimal"/>
+      <input class="j-input" id="jExit" placeholder="Exit price" inputmode="decimal"/>
+      <button class="j-add" onclick="addTrade()">+ ANALYZE TRADE</button>
+    </div>
+    <div id="journalList"></div>
+  </div>
+
   <div class="disclaimer"><p>FOR EDUCATIONAL PURPOSES ONLY · NOT FINANCIAL ADVICE · PAST PERFORMANCE DOES NOT GUARANTEE FUTURE RESULTS · TRADING INVOLVES SUBSTANTIAL RISK OF LOSS</p></div>
 </div>
 <script>
@@ -148,11 +197,17 @@ function computeSignal(quote){
   const high = quote.high || price;
   const low  = quote.low  || price;
   const range = high - low || price * 0.01;
-  const entryNum   = price;
-  const targetNum  = price + range * (1.2 + r()*0.5);
-  const slNum      = price - range * (0.6 + r()*0.3);
+  // Direction: +1 = long (buy), -1 = short (sell)
+  const dir = sigBias >= 0 ? 1 : -1;
+  // Entry is a limit-order zone offset from current price:
+  // buys wait for a small pullback below price, sells for a small bounce above
+  const entryOffset = range * (0.10 + r()*0.25);
+  const entryNum = dir > 0 ? price - entryOffset : price + entryOffset;
+  // TP in the direction of the trade, SL on the opposite side
+  const targetNum = dir > 0 ? entryNum + range*(1.2 + r()*0.5) : entryNum - range*(1.2 + r()*0.5);
+  const slNum     = dir > 0 ? entryNum - range*(0.6 + r()*0.3) : entryNum + range*(0.6 + r()*0.3);
   const supportNum = low;
-  const rr = ((targetNum-entryNum)/(entryNum-slNum)).toFixed(1);
+  const rr = (Math.abs(targetNum-entryNum)/Math.abs(entryNum-slNum)).toFixed(1);
   const mom=(bias)=>Math.round(Math.max(-95,Math.min(95,bias+(r()-0.5)*30)));
   const riskLevel=Math.abs(changePct)>2?"HIGH":Math.abs(changePct)>0.8?"MODERATE":"LOW";
   const riskScore=riskLevel==="LOW"?Math.round(20+r()*25):riskLevel==="MODERATE"?Math.round(45+r()*25):Math.round(70+r()*25);
@@ -255,7 +310,7 @@ function drawChart(canvas, bars, quote, analysis, clsColor){
 function hexAlpha(hex,a){const rv=parseInt(hex.slice(1,3),16),gv=parseInt(hex.slice(3,5),16),bv=parseInt(hex.slice(5,7),16);return `rgba(${rv},${gv},${bv},${a})`;}
 function momColor(v){return v>20?"#00D4AA":v<-20?"#FF4757":"#FFB347";}
 let activeClass="stocks",selectedAsset=null,liveQuote=null,liveBars=null,liveAnalysis=null;
-let refreshInterval=null,countdownInterval=null,countdown=60;
+let refreshInterval=null,countdownInterval=null,countdown=30;
 function updateTheme(){
   const c=CLASSES[activeClass].color,icon=CLASSES[activeClass].icon;
   document.getElementById("glowOrb").style.background=`radial-gradient(circle,${hexAlpha(c,0.07)} 0%,transparent 70%)`;
@@ -348,7 +403,7 @@ function renderCard(quote, bars, analysis, isRefresh){
           <div class="action-box-label" style="color:${entryColor}">Entry Signal</div>
           <div class="action-box-action" style="color:${entryColor}">${entryAction}</div>
           <div class="action-box-price" style="color:#F0F0F0">${fmtPrice(entryNum)}</div>
-          <div class="action-box-sub">Current entry zone</div>
+          <div class="action-box-sub">Limit order zone</div>
           <div class="action-box-icon">${entryIcon}</div>
         </div>
         <div class="action-box" style="background:rgba(126,184,255,0.08);border:1px solid rgba(126,184,255,0.25)">
@@ -419,9 +474,9 @@ function renderCard(quote, bars, analysis, isRefresh){
 }
 function startCountdown(){
   if(countdownInterval)clearInterval(countdownInterval);
-  countdown=60;
+  countdown=30;
   countdownInterval=setInterval(()=>{
-    countdown--;if(countdown<0)countdown=60;
+    countdown--;if(countdown<0)countdown=30;
     const el=document.getElementById("countdownDisplay");
     if(el)el.textContent=countdown+"s";
   },1000);
@@ -437,9 +492,9 @@ function startRefresh(){
       liveQuote=json.quote;liveBars=json.bars;
       liveAnalysis=computeSignal(liveQuote);
       renderCard(liveQuote,liveBars,liveAnalysis,true);
-      renderAssets();countdown=60;
+      renderAssets();countdown=30;
     }catch(e){console.error("Refresh error",e);}
-  },60000);
+  },30000);
 }
 function stopRefresh(){
   if(refreshInterval){clearInterval(refreshInterval);refreshInterval=null;}
@@ -460,6 +515,162 @@ async function analyze(asset){
     console.error(e);
   }
 }
+// ── HIGH CONVICTION SCANNER ──
+async function scanMarkets(){
+  const btn=document.getElementById("scanBtn");
+  const panel=document.getElementById("convictionPanel");
+  btn.disabled=true;btn.textContent="SCANNING…";
+  panel.innerHTML=`<div class="loader-wrap" style="padding:16px 0"><div class="loader-ring" style="width:36px;height:36px"><div class="pulse-dot-anim" style="width:7px;height:7px"></div></div></div>`;
+  try{
+    const res=await fetch(`${SERVER}/api/scan/${activeClass}`);
+    const json=await res.json();
+    if(!json.ok||!json.quotes||json.quotes.length===0)throw new Error("no data");
+    const quotes=json.quotes;
+    quotes.sort((a,b)=>Math.abs(parseFloat(b.changePct))-Math.abs(parseFloat(a.changePct)));
+    const top=quotes.slice(0,3);
+    panel.innerHTML=top.map((q,i)=>{
+      const ch=parseFloat(q.changePct);
+      const dir=ch>=0?"▲ LONG BIAS":"▼ SHORT BIAS";
+      const c=ch>=0?"#00D4AA":"#FF4757";
+      const strength=Math.abs(ch)>2?"VERY STRONG":Math.abs(ch)>1?"STRONG":"MODERATE";
+      return `<div class="conv-card">
+        <div class="conv-rank" style="color:${c}">${i+1}</div>
+        <div class="conv-info">
+          <div class="conv-asset">${q.asset}</div>
+          <div class="conv-price">${fmtPrice(q.price)} · ${dir}</div>
+        </div>
+        <div class="conv-right">
+          <div class="conv-change" style="color:${c}">${ch>=0?"+":""}${q.changePct}%</div>
+          <div class="conv-strength">${strength} MOMENTUM</div>
+        </div>
+      </div>`;
+    }).join("");
+  }catch(e){
+    panel.innerHTML=`<div class="error-box">Scan failed — try again.</div>`;
+  }
+  btn.disabled=false;btn.textContent="⌖ SCAN";
+}
+
+// ── TRADE JOURNAL ──
+function getTrades(){
+  try{return JSON.parse(localStorage.getItem("sig_trades")||"[]");}catch(e){return[];}
+}
+function saveTrades(t){
+  try{localStorage.setItem("sig_trades",JSON.stringify(t));}catch(e){}
+}
+// Map loose asset names to known assets for live lookup
+function matchKnownAsset(name){
+  const all=Object.values(CLASSES).flatMap(c=>c.assets);
+  const n=name.toUpperCase().replace(/\s+/g,"");
+  return all.find(a=>a.toUpperCase().replace(/[\s\/()]+/g,"").includes(n)||n.includes(a.toUpperCase().replace(/[\s\/()]+/g,"")))||null;
+}
+
+async function addTrade(){
+  const asset=document.getElementById("jAsset").value.trim().toUpperCase();
+  const dir=document.getElementById("jDir").value;
+  const entry=parseFloat(document.getElementById("jEntry").value);
+  const exit=parseFloat(document.getElementById("jExit").value);
+  if(!asset||isNaN(entry)||isNaN(exit)){alert("Fill in asset, entry and exit prices");return;}
+  const btn=document.querySelector(".j-add");
+  btn.textContent="ANALYZING…";btn.disabled=true;
+
+  // Try to fetch real market data for context
+  let quote=null;
+  const known=matchKnownAsset(asset);
+  if(known){
+    try{
+      const res=await fetch(`${SERVER}/api/quote/${encodeURIComponent(known)}`);
+      const json=await res.json();
+      if(json.ok)quote=json.data;
+    }catch(e){}
+  }
+
+  const trades=getTrades();
+  trades.unshift({id:Date.now(),asset,dir,entry,exit,
+    qPrice:quote?quote.price:null,
+    qHigh:quote?quote.high:null,
+    qLow:quote?quote.low:null,
+    qChangePct:quote?quote.changePct:null});
+  saveTrades(trades);
+  document.getElementById("jAsset").value="";
+  document.getElementById("jEntry").value="";
+  document.getElementById("jExit").value="";
+  btn.textContent="+ ANALYZE TRADE";btn.disabled=false;
+  renderJournal();
+}
+function delTrade(id){
+  saveTrades(getTrades().filter(t=>t.id!==id));
+  renderJournal();
+}
+function reviewTrade(t,plPct){
+  const abs=Math.abs(plPct);
+  const parts=[];
+
+  // 1. Reality check vs real market price
+  if(t.qPrice){
+    const dev=Math.abs(t.entry-t.qPrice)/t.qPrice;
+    if(dev>0.5){
+      parts.push(`⚠ Reality check: ${t.asset} currently trades around ${fmtPrice(t.qPrice)} — your entry of ${fmtPrice(t.entry)} is ${(dev*100).toFixed(0)}% away from the real market. Check your units, contract size, or whether this was a different instrument.`);
+    }else if(dev>0.15){
+      parts.push(`Note: your entry is ${(dev*100).toFixed(0)}% from the current market price of ${fmtPrice(t.qPrice)} — fine if this trade is from a while ago, but double-check the numbers if it was recent.`);
+    }
+  }
+
+  // 2. P/L verdict with magnitude context vs daily range
+  let rangeNote="";
+  if(t.qHigh&&t.qLow&&t.qPrice){
+    const dayRangePct=((t.qHigh-t.qLow)/t.qPrice)*100;
+    if(abs>dayRangePct*3&&dayRangePct>0){
+      rangeNote=` A ${abs.toFixed(1)}% move is ~${(abs/dayRangePct).toFixed(0)}x this asset's typical daily range (${dayRangePct.toFixed(1)}%) — unusual; verify the prices are right or this was held over multiple days.`;
+    }
+  }
+
+  if(plPct>3){
+    parts.push(`Strong win (+${plPct.toFixed(2)}%).${rangeNote} The key question: was this skill or luck? If you had a defined entry signal, target, and stop before entering, it's repeatable. If not, treat it as luck and don't size up.`);
+  }else if(plPct>0.5){
+    parts.push(`Decent win (+${plPct.toFixed(2)}%).${rangeNote} Compare your exit to where price went afterward — consistently leaving big moves on the table means your targets may be too tight.`);
+  }else if(plPct>-0.5){
+    parts.push(`Roughly breakeven.${rangeNote} Frequent scratched trades suggest entries on weak signals — demand a clearer setup before committing.`);
+  }else if(plPct>-3){
+    parts.push(`Controlled loss (${plPct.toFixed(2)}%).${rangeNote} If this hit a pre-planned stop, that's correct trading — the loss was the cost of the attempt, not a mistake.`);
+  }else{
+    parts.push(`Heavy loss (${plPct.toFixed(2)}%).${rangeNote} Losses this size usually mean no stop loss or moving the stop. Hard rule: define max loss before entry, never widen a stop. Risking 1-2% per trade max is what keeps accounts alive.`);
+  }
+
+  // 3. Direction vs current momentum
+  if(t.qChangePct!==null&&t.qChangePct!==undefined){
+    const ch=parseFloat(t.qChangePct);
+    const withTrend=(t.dir==="BUY"&&ch>0.3)||(t.dir==="SELL"&&ch<-0.3);
+    const againstTrend=(t.dir==="BUY"&&ch<-0.3)||(t.dir==="SELL"&&ch>0.3);
+    if(withTrend)parts.push(`Your ${t.dir} direction aligns with today's momentum (${ch>0?"+":""}${ch}%) — trading with the trend is statistically the higher-probability side.`);
+    else if(againstTrend)parts.push(`Heads up: your ${t.dir} was against today's momentum (${ch>0?"+":""}${ch}%). Counter-trend trades can work but need tighter stops and faster exits.`);
+  }
+
+  return parts.join(" ");
+}
+function renderJournal(){
+  const list=document.getElementById("journalList");
+  const trades=getTrades();
+  if(trades.length===0){list.innerHTML="";return;}
+  list.innerHTML=trades.map(t=>{
+    const raw=t.dir==="BUY"?(t.exit-t.entry)/t.entry:(t.entry-t.exit)/t.entry;
+    const plPct=raw*100;
+    const c=plPct>0?"#00D4AA":plPct<0?"#FF4757":"#A0A0B8";
+    return `<div class="trade-card">
+      <div class="trade-head">
+        <span class="trade-title">${t.asset} · ${t.dir}</span>
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="trade-pl" style="color:${c}">${plPct>0?"+":""}${plPct.toFixed(2)}%</span>
+          <button class="trade-del" onclick="delTrade(${t.id})">✕</button>
+        </div>
+      </div>
+      <div class="trade-detail">Entry ${fmtPrice(t.entry)} → Exit ${fmtPrice(t.exit)}</div>
+      <div class="trade-review">${reviewTrade(t,plPct)}</div>
+    </div>`;
+  }).join("");
+}
+renderJournal();
+
 updateTheme();renderTabs();renderAssets();
 </script>
 </body>
