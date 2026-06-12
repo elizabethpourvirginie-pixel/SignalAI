@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const yahooFinance = require('yahoo-finance2/dist/cjs/src/index-no-scrape.js');
 
 const app = express();
 app.use(cors());
@@ -17,6 +16,18 @@ const SYMBOL_MAP = {
 const cache = {};
 const CACHE_TTL = 60 * 1000;
 
+const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36";
+
+async function fetchChart(ticker, range, interval) {
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=${range}&interval=${interval}`;
+  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  if (!res.ok) throw new Error(`Yahoo Finance error: ${res.status}`);
+  const json = await res.json();
+  const result = json?.chart?.result?.[0];
+  if (!result) throw new Error("No data returned");
+  return result;
+}
+
 async function getQuote(asset) {
   const now = Date.now();
   if (cache[asset] && (now - cache[asset].ts) < CACHE_TTL) return cache[asset].data;
@@ -24,20 +35,22 @@ async function getQuote(asset) {
   const ticker = SYMBOL_MAP[asset];
   if (!ticker) throw new Error(`Unknown asset: ${asset}`);
 
-  const quote = await yahooFinance.quote(ticker);
-  const price = quote.regularMarketPrice;
-  const open  = quote.regularMarketOpen || price;
-  const high  = quote.regularMarketDayHigh || price;
-  const low   = quote.regularMarketDayLow || price;
-  const prev  = quote.regularMarketPreviousClose || price;
+  const result = await fetchChart(ticker, "5d", "1d");
+  const meta = result.meta;
+
+  const price = meta.regularMarketPrice;
+  const prev  = meta.previousClose || meta.chartPreviousClose || price;
+  const open  = meta.regularMarketOpen ?? prev;
+  const high  = meta.regularMarketDayHigh ?? Math.max(price, prev);
+  const low   = meta.regularMarketDayLow ?? Math.min(price, prev);
   const change = price - prev;
-  const changePct = ((change / prev) * 100).toFixed(2);
+  const changePct = prev ? ((change / prev) * 100).toFixed(2) : "0.00";
 
   const data = {
     asset, ticker, price, open, high, low, prev,
     change: change.toFixed(4), changePct,
-    currency: quote.currency || "USD",
-    marketState: quote.marketState || "REGULAR",
+    currency: meta.currency || "USD",
+    marketState: meta.marketState || "REGULAR",
     timestamp: new Date().toISOString(),
   };
   cache[asset] = { ts: now, data };
@@ -47,16 +60,29 @@ async function getQuote(asset) {
 async function getHistory(asset) {
   const ticker = SYMBOL_MAP[asset];
   if (!ticker) throw new Error(`Unknown asset: ${asset}`);
-  const now = new Date();
-  const from = new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000);
-  const result = await yahooFinance.chart(ticker, { period1: from, period2: now, interval: '1m' });
-  const quotes = result.quotes || [];
-  return quotes.slice(-60).map(q => ({
-    t: q.date ? new Date(q.date).getTime() : Date.now(),
-    o: q.open, h: q.high, l: q.low, c: q.close,
-  })).filter(q => q.c != null);
+
+  const result = await fetchChart(ticker, "1d", "1m");
+  const timestamps = result.timestamp || [];
+  const closes = result.indicators?.quote?.[0]?.close || [];
+  const opens  = result.indicators?.quote?.[0]?.open || [];
+  const highs  = result.indicators?.quote?.[0]?.high || [];
+  const lows   = result.indicators?.quote?.[0]?.low || [];
+
+  const bars = [];
+  for (let i = 0; i < timestamps.length; i++) {
+    if (closes[i] == null) continue;
+    bars.push({
+      t: timestamps[i] * 1000,
+      o: opens[i] ?? closes[i],
+      h: highs[i] ?? closes[i],
+      l: lows[i] ?? closes[i],
+      c: closes[i],
+    });
+  }
+  return bars.slice(-60);
 }
 
+// ── Routes ──
 app.get('/health', (req, res) => res.json({ status: 'ok', time: new Date().toISOString() }));
 
 app.get('/api/quote/:asset', async (req, res) => {
