@@ -80,6 +80,23 @@ canvas{display:block;width:100%;}
 .disclaimer{padding:14px 16px 0;}
 .disclaimer p{font-family:'DM Mono',monospace;font-size:8px;color:#333;line-height:1.6;text-align:center;letter-spacing:0.04em;}
 .mb14{margin-bottom:14px;}
+/* ── REGIME ── */
+.regime-banner{border-radius:10px;padding:10px 12px;margin-bottom:12px;}
+.regime-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;font-family:'DM Mono',monospace;font-size:11px;}
+.regime-note{font-family:'DM Sans',sans-serif;font-size:11px;color:#999;line-height:1.4;}
+/* ── PATTERNS ── */
+.patterns-box{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;padding:10px 12px;margin-bottom:12px;}
+.pattern-item{display:flex;flex-direction:column;gap:1px;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.03);}
+.pattern-item:last-child{border-bottom:none;}
+.pattern-name{font-family:'DM Mono',monospace;font-size:10px;font-weight:600;}
+.pattern-note{font-family:'DM Sans',sans-serif;font-size:10px;color:#777;line-height:1.3;}
+/* ── CORRELATION ── */
+.corr-box{border-radius:8px;padding:8px 10px;margin-top:10px;margin-bottom:6px;}
+.corr-head{font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.06em;margin-bottom:4px;}
+.corr-peers{display:flex;gap:8px;flex-wrap:wrap;}
+/* ── VOLUME PROFILE ── */
+.vp-box{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;margin-top:6px;}
+.vp-line{font-family:'DM Mono',monospace;font-size:9.5px;color:#999;line-height:1.7;}
 /* ── CONFLUENCE ── */
 .agree-banner{padding:8px 10px;border-radius:8px;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.06em;text-align:center;margin-bottom:10px;}
 .conf-tf{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;margin-bottom:6px;}
@@ -262,7 +279,7 @@ function fmtPrice(n){
   if(n>=1)    return n.toFixed(4);
   return n.toFixed(5);
 }
-function buildAnalysis(quote, mtf, verdict, bars, sr){
+function buildAnalysis(quote, mtf, verdict, bars, sr, vp, corr, regime){
   // Server now does the heavy lifting. Build levels from real ATR + verdict.
   const price = quote.price;
   const signal = verdict.signal;
@@ -300,6 +317,7 @@ function buildAnalysis(quote, mtf, verdict, bars, sr){
     levels:{entryNum,targetNum,slNum,supportNum,rr},
     confidence:verdict.confidence,timestamp:ts,
     verdict, mtf, sr: sr||{supports:[],resistances:[]},
+    vp: vp||null, corr: corr||null, regime: regime||null,
   };
 }
 
@@ -497,6 +515,38 @@ function renderCard(quote, bars, analysis, isRefresh){
         </div>
         <span class="signal-badge" style="background:${hexAlpha(sc,0.13)};border:1px solid ${hexAlpha(sc,0.33)};color:${sc}">${analysis.signal}</span>
       </div>
+      <!-- MARKET REGIME -->
+      ${(()=>{
+        const reg=analysis.regime;
+        if(!reg)return"";
+        const map={"trending-up":["#00D4AA","📈 TRENDING UP"],"trending-down":["#FF4757","📉 TRENDING DOWN"],"ranging":["#FFB347","↔️ RANGING / CHOPPY"],"transitioning":["#A0A0B8","🔄 TRANSITIONING"],"unknown":["#666","? UNKNOWN"]};
+        const [col,lbl]=map[reg.regime]||map.unknown;
+        return `<div class="regime-banner" style="background:${hexAlpha(col,0.1)};border:1px solid ${hexAlpha(col,0.3)}">
+          <div class="regime-head"><span style="color:${col};font-weight:700">${lbl}</span><span style="color:#666;font-size:8px">ADX ${reg.adx}</span></div>
+          <div class="regime-note">${reg.note}</div>
+        </div>`;
+      })()}
+
+      <!-- PATTERNS & DIVERGENCE -->
+      ${(()=>{
+        const tf=analysis.mtf&&analysis.mtf.medium?analysis.mtf.medium:(analysis.mtf&&analysis.mtf.short?analysis.mtf.short:null);
+        if(!tf)return"";
+        const pats=tf.patterns||[];
+        const div=tf.divergence;
+        if(!pats.length&&!div)return"";
+        let items="";
+        if(div){
+          const c=div.bias>0?"#00D4AA":"#FF4757";
+          items+=`<div class="pattern-item"><span class="pattern-name" style="color:${c}">⚡ ${div.type}</span><span class="pattern-note">${div.note}</span></div>`;
+        }
+        pats.forEach(p=>{
+          const c=p.bias>0?"#00D4AA":p.bias<0?"#FF4757":"#FFB347";
+          const icon=p.bias>0?"▲":p.bias<0?"▼":"◆";
+          items+=`<div class="pattern-item"><span class="pattern-name" style="color:${c}">${icon} ${p.name}</span><span class="pattern-note">${p.note}</span></div>`;
+        });
+        return `<div class="patterns-box"><div class="subsection-label" style="margin-bottom:6px">— Price Patterns Detected</div>${items}</div>`;
+      })()}
+
       <div class="action-boxes">
         <div class="action-box" style="background:${hexAlpha(entryColor,0.08)};border:1px solid ${hexAlpha(entryColor,0.25)}">
           <div class="action-box-label" style="color:${entryColor}">Entry Signal</div>
@@ -609,6 +659,39 @@ function renderCard(quote, bars, analysis, isRefresh){
       ${tfBlock(analysis.mtf.short)}`;
   }
 
+  // Correlation + Volume Profile injected after confluence
+  const extraSlot=document.getElementById("confluenceSlot");
+  if(extraSlot){
+    let extra="";
+    // Cross-asset correlation
+    if(analysis.corr){
+      const cr=analysis.corr;
+      const col=cr.verdict==="confirmed"?"#00D4AA":cr.verdict==="conflicted"?"#FF4757":"#FFB347";
+      const txt=cr.verdict==="confirmed"?"✓ CONFIRMED by correlated assets":cr.verdict==="conflicted"?"✗ CONFLICTED by correlated assets":"~ Correlated assets neutral";
+      const peers=cr.peers.map(p=>{
+        const pc=p.confirms?"#00D4AA":p.peerDir===0?"#888":"#FF4757";
+        return `<span style="color:${pc};font-size:9px;font-family:'DM Mono',monospace">${p.asset} ${p.changePct>=0?"+":""}${p.changePct}%</span>`;
+      }).join(" · ");
+      extra+=`<div class="corr-box" style="border:1px solid ${hexAlpha(col,0.25)};background:${hexAlpha(col,0.06)}">
+        <div class="corr-head" style="color:${col}">${txt}</div>
+        <div class="corr-peers">${peers}</div>
+      </div>`;
+    }
+    // Volume profile
+    if(analysis.vp){
+      extra+=`<div class="vp-box">
+        <div class="subsection-label" style="margin-bottom:5px">— Volume Profile (where big players sit)</div>
+        <div class="vp-line">Point of Control: <b style="color:#7EB8FF">${fmtPrice(analysis.vp.poc)}</b> <span style="color:#555">— highest-volume price, acts as a magnet</span></div>
+        <div class="vp-line">High-volume zones: ${analysis.vp.nodes.map(n=>`<b style="color:#C0C0D0">${fmtPrice(n)}</b>`).join(" · ")}</div>
+      </div>`;
+    }
+    if(extra){
+      const div=document.createElement("div");
+      div.innerHTML=extra;
+      extraSlot.appendChild(div);
+    }
+  }
+
   requestAnimationFrame(()=>{
     const canvas=document.getElementById("priceChart");
     if(!canvas)return;
@@ -634,7 +717,7 @@ function startRefresh(){
       const json=await res.json();
       if(!json.ok)return;
       liveQuote=json.quote;liveBars=json.bars;
-      liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr);
+      liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr,json.vp,json.corr,json.regime);
       renderCard(liveQuote,liveBars,liveAnalysis,true);
       renderAssets();countdown=30;
     }catch(e){console.error("Refresh error",e);}
@@ -651,7 +734,7 @@ async function analyze(asset){
     const json=await res.json();
     if(!json.ok)throw new Error(json.error||"Server error");
     liveQuote=json.quote;liveBars=json.bars;
-    liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr);
+    liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr,json.vp,json.corr,json.regime);
     renderCard(liveQuote,liveBars,liveAnalysis,false);
     renderAssets();startRefresh();
     // Kick off backtest in background
