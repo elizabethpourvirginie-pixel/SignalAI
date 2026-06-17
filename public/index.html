@@ -97,6 +97,23 @@ canvas{display:block;width:100%;}
 .bt-val{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;letter-spacing:-0.02em;}
 .bt-lbl{font-family:'DM Mono',monospace;font-size:7.5px;color:#555;text-transform:uppercase;letter-spacing:0.08em;margin-top:2px;}
 .bt-note{font-family:'DM Mono',monospace;font-size:8px;color:#444;line-height:1.5;letter-spacing:0.02em;}
+/* ── TRACK RECORD ── */
+.track-overall{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;}
+.track-big{background:rgba(0,212,170,0.06);border:1px solid rgba(0,212,170,0.2);border-radius:10px;padding:12px 6px;text-align:center;}
+.track-big-val{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.02em;}
+.track-big-lbl{font-family:'DM Mono',monospace;font-size:7.5px;color:#666;text-transform:uppercase;letter-spacing:0.08em;margin-top:3px;}
+.track-row{display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:7px;margin-bottom:4px;}
+.track-asset{font-family:'DM Mono',monospace;font-size:11px;color:#F0F0F0;}
+.track-stats{font-family:'DM Mono',monospace;font-size:9px;color:#888;}
+.track-disclaimer{font-family:'DM Mono',monospace;font-size:8px;color:#444;line-height:1.5;margin-top:8px;letter-spacing:0.02em;}
+/* ── CALCULATOR ── */
+.calc-form{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.calc-row{display:flex;flex-direction:column;gap:4px;}
+.calc-label{font-family:'DM Mono',monospace;font-size:8px;color:#666;text-transform:uppercase;letter-spacing:0.06em;}
+.calc-result{background:rgba(0,212,170,0.06);border:1px solid rgba(0,212,170,0.25);border-radius:10px;padding:12px;margin-top:10px;animation:fadeUp 0.4s ease;}
+.calc-result-main{font-family:'Syne',sans-serif;font-size:16px;font-weight:800;color:#00D4AA;margin-bottom:6px;}
+.calc-result-line{font-family:'DM Mono',monospace;font-size:10px;color:#B0B0C0;line-height:1.7;}
+.calc-warn{font-family:'DM Mono',monospace;font-size:9px;color:#FFB347;margin-top:8px;line-height:1.5;}
 /* ── HIGH CONVICTION ── */
 .section-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
 .scan-btn{padding:6px 14px;border-radius:7px;border:1px solid rgba(0,212,170,0.35);background:rgba(0,212,170,0.1);color:#00D4AA;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.1em;cursor:pointer;}
@@ -165,6 +182,42 @@ canvas{display:block;width:100%;}
     <div id="convictionPanel"></div>
   </div>
 
+  <!-- PUBLIC TRACK RECORD -->
+  <div class="assets-section">
+    <div class="section-row">
+      <div class="section-label" style="margin-bottom:0">Public Track Record — Our Honest Numbers</div>
+      <button class="scan-btn" id="trackBtn" onclick="loadTrack()">↻ LOAD</button>
+    </div>
+    <p class="section-note">The strategy replayed over real historical price data for every asset in this category. We show the real win rate — good or bad. No cherry-picking, no fake screenshots.</p>
+    <div id="trackPanel"></div>
+  </div>
+
+  <!-- POSITION SIZE CALCULATOR -->
+  <div class="assets-section">
+    <div class="section-label">Position Size Calculator — Trade the Right Amount</div>
+    <p class="section-note">The #1 rule of survival: never risk more than 1-2% per trade. This tells you exactly how big your position should be.</p>
+    <div class="calc-form">
+      <div class="calc-row">
+        <label class="calc-label">Account balance ($)</label>
+        <input class="j-input" id="cBal" placeholder="e.g. 1000" inputmode="decimal"/>
+      </div>
+      <div class="calc-row">
+        <label class="calc-label">Risk per trade (%)</label>
+        <input class="j-input" id="cRisk" placeholder="e.g. 2" inputmode="decimal" value="2"/>
+      </div>
+      <div class="calc-row">
+        <label class="calc-label">Entry price</label>
+        <input class="j-input" id="cEntry" placeholder="e.g. 35.00" inputmode="decimal"/>
+      </div>
+      <div class="calc-row">
+        <label class="calc-label">Stop loss price</label>
+        <input class="j-input" id="cStop" placeholder="e.g. 34.00" inputmode="decimal"/>
+      </div>
+    </div>
+    <button class="j-add" onclick="calcPosition()" style="margin-top:8px">CALCULATE POSITION SIZE</button>
+    <div id="calcResult"></div>
+  </div>
+
   <!-- TRADE JOURNAL -->
   <div class="assets-section">
     <div class="section-label">Trade Journal — Analyze Your Trades</div>
@@ -209,7 +262,7 @@ function fmtPrice(n){
   if(n>=1)    return n.toFixed(4);
   return n.toFixed(5);
 }
-function buildAnalysis(quote, mtf, verdict, bars){
+function buildAnalysis(quote, mtf, verdict, bars, sr){
   // Server now does the heavy lifting. Build levels from real ATR + verdict.
   const price = quote.price;
   const signal = verdict.signal;
@@ -246,11 +299,11 @@ function buildAnalysis(quote, mtf, verdict, bars){
     risk:{level:riskLevel,score:riskScore,atr:`${atrPct.toFixed(2)}% (${fmtPrice(atrVal)})`,vix:verdict.allAgree?"All TFs aligned":verdict.majorityAgree?"Majority aligned":"TFs conflicting"},
     levels:{entryNum,targetNum,slNum,supportNum,rr},
     confidence:verdict.confidence,timestamp:ts,
-    verdict, mtf,
+    verdict, mtf, sr: sr||{supports:[],resistances:[]},
   };
 }
 
-function drawChart(canvas, bars, quote, analysis, clsColor){
+function drawChart(canvas, bars, quote, analysis, clsColor, sr){
   const dpr=window.devicePixelRatio||1;
   const W=canvas.offsetWidth||300;
   const H=180;
@@ -299,6 +352,27 @@ function drawChart(canvas, bars, quote, analysis, clsColor){
     ctx.textAlign="left";
     ctx.fillText(txt,PL+6,y+3);
     ctx.restore();
+  }
+  // Real support/resistance levels (faint dotted)
+  if(sr){
+    (sr.resistances||[]).forEach((r,i)=>{
+      const y=toY(r);
+      if(y>=PT&&y<=PT+cH){
+        ctx.save();ctx.strokeStyle="#FF8C69";ctx.globalAlpha=0.35;ctx.lineWidth=0.7;ctx.setLineDash([2,3]);
+        ctx.beginPath();ctx.moveTo(PL,y);ctx.lineTo(W-PR,y);ctx.stroke();
+        ctx.setLineDash([]);ctx.globalAlpha=0.6;ctx.fillStyle="#FF8C69";ctx.font="6px monospace";ctx.textAlign="right";
+        ctx.fillText("R "+fmtPrice(r),W-PR-1,y-1.5);ctx.restore();
+      }
+    });
+    (sr.supports||[]).forEach((s,i)=>{
+      const y=toY(s);
+      if(y>=PT&&y<=PT+cH){
+        ctx.save();ctx.strokeStyle="#2ECC8A";ctx.globalAlpha=0.35;ctx.lineWidth=0.7;ctx.setLineDash([2,3]);
+        ctx.beginPath();ctx.moveTo(PL,y);ctx.lineTo(W-PR,y);ctx.stroke();
+        ctx.setLineDash([]);ctx.globalAlpha=0.6;ctx.fillStyle="#2ECC8A";ctx.font="6px monospace";ctx.textAlign="right";
+        ctx.fillText("S "+fmtPrice(s),W-PR-1,y-1.5);ctx.restore();
+      }
+    });
   }
   lvlLine(slNum,     "#FF4757","SL",  true);
   lvlLine(supportNum,"#2ECC8A","SUP", true);
@@ -467,6 +541,11 @@ function renderCard(quote, bars, analysis, isRefresh){
           <div class="stat-box"><div class="stat-label">Low</div><div class="stat-val" style="color:#FF4757">${fmtPrice(quote.low)}</div></div>
           <div class="stat-box"><div class="stat-label">Prev Close</div><div class="stat-val" style="color:#888">${fmtPrice(quote.prev)}</div></div>
         </div>
+        ${(analysis.sr&&((analysis.sr.supports&&analysis.sr.supports.length)||(analysis.sr.resistances&&analysis.sr.resistances.length)))?`
+        <div style="margin-top:8px;font-family:'DM Mono',monospace;font-size:8.5px;line-height:1.7">
+          ${analysis.sr.resistances&&analysis.sr.resistances.length?`<div style="color:#FF8C69">RESISTANCE: ${analysis.sr.resistances.map(r=>fmtPrice(r)).join(" · ")}</div>`:""}
+          ${analysis.sr.supports&&analysis.sr.supports.length?`<div style="color:#2ECC8A">SUPPORT: ${analysis.sr.supports.map(s=>fmtPrice(s)).join(" · ")}</div>`:""}
+        </div>`:""}
       </div>
       <div class="mb14">
         <div class="subsection-label">— Multi-Timeframe Momentum (confluence score)</div>
@@ -534,7 +613,7 @@ function renderCard(quote, bars, analysis, isRefresh){
     const canvas=document.getElementById("priceChart");
     if(!canvas)return;
     canvas.style.width="100%";canvas.style.height="180px";
-    drawChart(canvas, bars, quote, analysis, cls.color);
+    drawChart(canvas, bars, quote, analysis, cls.color, analysis.sr);
   });
 }
 function startCountdown(){
@@ -555,7 +634,7 @@ function startRefresh(){
       const json=await res.json();
       if(!json.ok)return;
       liveQuote=json.quote;liveBars=json.bars;
-      liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars);
+      liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr);
       renderCard(liveQuote,liveBars,liveAnalysis,true);
       renderAssets();countdown=30;
     }catch(e){console.error("Refresh error",e);}
@@ -572,7 +651,7 @@ async function analyze(asset){
     const json=await res.json();
     if(!json.ok)throw new Error(json.error||"Server error");
     liveQuote=json.quote;liveBars=json.bars;
-    liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars);
+    liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr);
     renderCard(liveQuote,liveBars,liveAnalysis,false);
     renderAssets();startRefresh();
     // Kick off backtest in background
@@ -974,6 +1053,79 @@ function renderJournal(){
   });
 }
 renderJournal();
+
+// ── PUBLIC TRACK RECORD ──
+async function loadTrack(){
+  const btn=document.getElementById("trackBtn");
+  const panel=document.getElementById("trackPanel");
+  btn.disabled=true;btn.textContent="LOADING…";
+  panel.innerHTML=`<div class="loader-wrap" style="padding:16px 0"><div class="loader-ring" style="width:36px;height:36px"><div class="pulse-dot-anim" style="width:7px;height:7px"></div></div><p class="loader-text">Replaying strategy on real history…</p></div>`;
+  try{
+    const res=await fetch(`${SERVER}/api/track/${activeClass}`);
+    const json=await res.json();
+    if(!json.ok||!json.track)throw new Error("no data");
+    const t=json.track;
+    const o=t.overall;
+    const wrColor=o.winRate>=55?"#00D4AA":o.winRate>=45?"#FFB347":"#FF4757";
+    const rows=t.perAsset.map(a=>{
+      const c=a.winRate>=55?"#00D4AA":a.winRate>=45?"#FFB347":"#FF4757";
+      return `<div class="track-row">
+        <span class="track-asset">${a.asset}</span>
+        <span class="track-stats"><span style="color:${c}">${a.winRate}% win</span> · ${a.trades} trades · ${a.avgReturn>=0?"+":""}${a.avgReturn}% avg</span>
+      </div>`;
+    }).join("");
+    panel.innerHTML=`
+      <div class="track-overall">
+        <div class="track-big"><div class="track-big-val" style="color:${wrColor}">${o.winRate}%</div><div class="track-big-lbl">Overall Win Rate</div></div>
+        <div class="track-big"><div class="track-big-val" style="color:#F0F0F0">${o.trades}</div><div class="track-big-lbl">Signals Tested</div></div>
+        <div class="track-big"><div class="track-big-val" style="color:${o.avgReturn>=0?'#00D4AA':'#FF4757'}">${o.avgReturn>=0?'+':''}${o.avgReturn}%</div><div class="track-big-lbl">Avg Per Trade</div></div>
+      </div>
+      ${rows}
+      <div class="track-disclaimer">${t.note} Period: ${t.period}. A win rate near 50% means the strategy has no edge on that asset — trade the ones above 55%. This is the honest number; anyone showing you 90%+ is lying.</div>`;
+  }catch(e){
+    panel.innerHTML=`<div class="error-box">Could not load track record — try again.</div>`;
+  }
+  btn.disabled=false;btn.textContent="↻ LOAD";
+}
+
+// ── POSITION SIZE CALCULATOR ──
+function calcPosition(){
+  const bal=parseFloat(document.getElementById("cBal").value);
+  const riskPct=parseFloat(document.getElementById("cRisk").value);
+  const entry=parseFloat(document.getElementById("cEntry").value);
+  const stop=parseFloat(document.getElementById("cStop").value);
+  const out=document.getElementById("calcResult");
+  if(isNaN(bal)||isNaN(riskPct)||isNaN(entry)||isNaN(stop)){
+    out.innerHTML=`<div class="calc-warn">⚠ Fill in all four fields with numbers.</div>`;return;
+  }
+  if(entry===stop){
+    out.innerHTML=`<div class="calc-warn">⚠ Entry and stop loss can't be the same price.</div>`;return;
+  }
+  const riskAmount=bal*(riskPct/100);
+  const riskPerUnit=Math.abs(entry-stop);
+  const units=riskAmount/riskPerUnit;
+  const positionValue=units*entry;
+  const lossIfStopped=units*riskPerUnit;
+  const stopDistPct=(riskPerUnit/entry)*100;
+
+  let warn="";
+  if(riskPct>3)warn=`<div class="calc-warn">⚠ Risking ${riskPct}% per trade is aggressive. Most professionals risk 1-2%. At ${riskPct}%, a losing streak of 10 trades would cut your account roughly in half.</div>`;
+  else if(positionValue>bal)warn=`<div class="calc-warn">⚠ This position (${fmtMoney(positionValue)}) is larger than your account — you'd need leverage. Make sure you understand the liquidation risk.</div>`;
+
+  out.innerHTML=`<div class="calc-result">
+    <div class="calc-result-main">Trade ${units>=1?units.toFixed(2):units.toFixed(4)} units</div>
+    <div class="calc-result-line">
+      Position value: <b style="color:#F0F0F0">${fmtMoney(positionValue)}</b><br/>
+      You risk: <b style="color:#FF4757">${fmtMoney(lossIfStopped)}</b> (${riskPct}% of account) if stopped out<br/>
+      Stop distance: <b style="color:#FFB347">${stopDistPct.toFixed(2)}%</b> from entry<br/>
+      Max loss is capped — this is how you survive losing streaks.
+    </div>
+    ${warn}
+  </div>`;
+}
+function fmtMoney(n){
+  return "$"+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
 
 updateTheme();renderTabs();renderAssets();
 </script>
