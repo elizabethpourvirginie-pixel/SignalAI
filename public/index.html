@@ -80,6 +80,23 @@ canvas{display:block;width:100%;}
 .disclaimer{padding:14px 16px 0;}
 .disclaimer p{font-family:'DM Mono',monospace;font-size:8px;color:#333;line-height:1.6;text-align:center;letter-spacing:0.04em;}
 .mb14{margin-bottom:14px;}
+/* ── CONFLUENCE ── */
+.agree-banner{padding:8px 10px;border-radius:8px;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.06em;text-align:center;margin-bottom:10px;}
+.conf-tf{background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:8px;padding:8px 10px;margin-bottom:6px;}
+.conf-tf-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,0.04);}
+.conf-tf-label{font-family:'DM Mono',monospace;font-size:9px;color:#999;letter-spacing:0.08em;text-transform:uppercase;}
+.conf-tf-score{font-family:'DM Mono',monospace;font-size:9px;font-weight:600;}
+.conf-sig{display:flex;align-items:center;gap:6px;padding:2px 0;}
+.conf-sig-name{font-family:'DM Mono',monospace;font-size:9px;color:#888;width:62px;flex-shrink:0;}
+.conf-sig-note{font-family:'DM Sans',sans-serif;font-size:9.5px;color:#777;flex:1;line-height:1.3;}
+.conf-sig-vote{font-family:'DM Mono',monospace;font-size:11px;width:14px;text-align:center;flex-shrink:0;}
+/* ── BACKTEST ── */
+.bt-loading{font-family:'DM Mono',monospace;font-size:10px;color:#555;padding:8px 0;}
+.bt-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:6px;}
+.bt-box{background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;padding:10px 6px;text-align:center;}
+.bt-val{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;letter-spacing:-0.02em;}
+.bt-lbl{font-family:'DM Mono',monospace;font-size:7.5px;color:#555;text-transform:uppercase;letter-spacing:0.08em;margin-top:2px;}
+.bt-note{font-family:'DM Mono',monospace;font-size:8px;color:#444;line-height:1.5;letter-spacing:0.02em;}
 /* ── HIGH CONVICTION ── */
 .section-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
 .scan-btn{padding:6px 14px;border-radius:7px;border:1px solid rgba(0,212,170,0.35);background:rgba(0,212,170,0.1);color:#00D4AA;font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.1em;cursor:pointer;}
@@ -192,50 +209,47 @@ function fmtPrice(n){
   if(n>=1)    return n.toFixed(4);
   return n.toFixed(5);
 }
-function computeSignal(quote){
-  const rand=seededRand(strToSeed(quote.asset+Math.floor(Date.now()/60000)));
-  const r=()=>rand();
+function buildAnalysis(quote, mtf, verdict, bars){
+  // Server now does the heavy lifting. Build levels from real ATR + verdict.
   const price = quote.price;
-  const changePct = parseFloat(quote.changePct);
-  let sigBias = changePct * 5;
-  sigBias = Math.max(-50, Math.min(50, sigBias));
-  let signal;
-  if(sigBias>30)       signal="STRONG BUY";
-  else if(sigBias>10)  signal="BUY";
-  else if(sigBias>-10) signal="NEUTRAL";
-  else if(sigBias>-30) signal="SELL";
-  else                 signal="STRONG SELL";
-  const high = quote.high || price;
-  const low  = quote.low  || price;
-  const range = high - low || price * 0.01;
-  // Direction: +1 = long (buy), -1 = short (sell)
-  const dir = sigBias >= 0 ? 1 : -1;
-  // Entry is a limit-order zone offset from current price:
-  // buys wait for a small pullback below price, sells for a small bounce above
-  const entryOffset = range * (0.10 + r()*0.25);
-  const entryNum = dir > 0 ? price - entryOffset : price + entryOffset;
-  // TP in the direction of the trade, SL on the opposite side
-  const targetNum = dir > 0 ? entryNum + range*(1.2 + r()*0.5) : entryNum - range*(1.2 + r()*0.5);
-  const slNum     = dir > 0 ? entryNum - range*(0.6 + r()*0.3) : entryNum + range*(0.6 + r()*0.3);
-  const supportNum = low;
-  const rr = (Math.abs(targetNum-entryNum)/Math.abs(entryNum-slNum)).toFixed(1);
-  const mom=(bias)=>Math.round(Math.max(-95,Math.min(95,bias+(r()-0.5)*30)));
-  const riskLevel=Math.abs(changePct)>2?"HIGH":Math.abs(changePct)>0.8?"MODERATE":"LOW";
-  const riskScore=riskLevel==="LOW"?Math.round(20+r()*25):riskLevel==="MODERATE"?Math.round(45+r()*25):Math.round(70+r()*25);
-  const atrDescs=["0.8% avg range","1.2% avg range","1.8% avg range","2.4% avg range","3.1% avg range"];
-  const vixDescs=["Low (+0.18)","Moderate (+0.42)","High (+0.67)","Inverse (-0.23)","Neutral (+0.05)"];
-  const pool=RATIONALES[activeClass]||RATIONALES.stocks;
-  const rationale=pool[Math.floor(r()*pool.length)];
-  const conf=Math.round(62+r()*28);
+  const signal = verdict.signal;
+  const isLong = signal.includes("BUY");
+  const isShort = signal.includes("SELL");
+  const atrVal = mtf.atr || (price*0.01);
+
+  const dir = isLong?1:isShort?-1:0;
+  // Entry: limit zone offset by 0.3 ATR in the pullback direction
+  const entryNum = dir>0 ? price - atrVal*0.3 : dir<0 ? price + atrVal*0.3 : price;
+  // TP at 2x ATR, SL at 1x ATR — gives ~2:1 reward:risk
+  const targetNum = dir>0 ? entryNum + atrVal*2 : dir<0 ? entryNum - atrVal*2 : price + atrVal*2;
+  const slNum = dir>0 ? entryNum - atrVal : dir<0 ? entryNum + atrVal : price - atrVal;
+  const supportNum = quote.low;
+  const rr = dir!==0 ? (Math.abs(targetNum-entryNum)/Math.abs(entryNum-slNum)).toFixed(1) : "2.0";
+
+  // Momentum readings from the 3 timeframes
+  const momentum = {
+    short: mtf.short?mtf.short.score:0,
+    medium: mtf.medium?mtf.medium.score:0,
+    long: mtf.long?mtf.long.score:0,
+  };
+
+  // Risk from ATR as % of price
+  const atrPct = (atrVal/price)*100;
+  const riskLevel = atrPct>2.5?"HIGH":atrPct>1?"MODERATE":"LOW";
+  const riskScore = riskLevel==="LOW"?Math.round(20+atrPct*10):riskLevel==="MODERATE"?Math.round(40+atrPct*8):Math.round(65+Math.min(30,atrPct*5));
+
   const now=new Date();
   const ts=now.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+" "+now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+" UTC";
-  return {signal,sigBias,
-    momentum:{short:mom(sigBias*1.2),medium:mom(sigBias*0.8),long:mom(sigBias*0.5)},
-    risk:{level:riskLevel,score:riskScore,atr:atrDescs[Math.floor(r()*atrDescs.length)],vix:vixDescs[Math.floor(r()*vixDescs.length)]},
+
+  return {signal,
+    momentum,
+    risk:{level:riskLevel,score:riskScore,atr:`${atrPct.toFixed(2)}% (${fmtPrice(atrVal)})`,vix:verdict.allAgree?"All TFs aligned":verdict.majorityAgree?"Majority aligned":"TFs conflicting"},
     levels:{entryNum,targetNum,slNum,supportNum,rr},
-    rationale,confidence:conf,timestamp:ts,
+    confidence:verdict.confidence,timestamp:ts,
+    verdict, mtf,
   };
 }
+
 function drawChart(canvas, bars, quote, analysis, clsColor){
   const dpr=window.devicePixelRatio||1;
   const W=canvas.offsetWidth||300;
@@ -378,9 +392,9 @@ function renderCard(quote, bars, analysis, isRefresh){
   const changeColor=changeNum>=0?"#00D4AA":"#FF4757";
   const changeSign=changeNum>=0?"+":"";
   const momRows=[
-    {label:"Short-term (1D)",val:analysis.momentum.short},
-    {label:"Medium-term (1W)",val:analysis.momentum.medium},
-    {label:"Long-term (1M)",val:analysis.momentum.long},
+    {label:"Intraday (2m bars)",val:analysis.momentum.short},
+    {label:"Swing (15m bars)",val:analysis.momentum.medium},
+    {label:"Trend (1h bars)",val:analysis.momentum.long},
   ].map(m=>{
     const pct=((m.val+100)/200)*100,c=momColor(m.val);
     return `<div class="momentum-item">
@@ -455,9 +469,18 @@ function renderCard(quote, bars, analysis, isRefresh){
         </div>
       </div>
       <div class="mb14">
-        <div class="subsection-label">— Momentum</div>
+        <div class="subsection-label">— Multi-Timeframe Momentum (confluence score)</div>
         ${momRows}
       </div>
+      <!-- CONFLUENCE BREAKDOWN -->
+      <div class="mb14" id="confluenceSlot"></div>
+
+      <!-- BACKTEST -->
+      <div class="mb14" id="backtestSlot">
+        <div class="subsection-label">— Strategy Backtest</div>
+        <div class="bt-loading">Running backtest on historical data…</div>
+      </div>
+
       <div class="mb14">
         <div class="subsection-label">— Volatility & Risk</div>
         <div class="risk-row"><div class="risk-segments">${riskSegs}</div>
@@ -476,6 +499,37 @@ function renderCard(quote, bars, analysis, isRefresh){
         </div>
       </div>
     </div>`;
+  // Populate confluence breakdown
+  const confSlot=document.getElementById("confluenceSlot");
+  const hasTF=analysis.mtf&&(analysis.mtf.short||analysis.mtf.medium||analysis.mtf.long);
+  if(confSlot&&!hasTF){
+    confSlot.innerHTML=`<div class="subsection-label">— Confluence Analysis</div><div class="bt-loading">Indicator data temporarily unavailable for this asset — showing price-based signal. Try again shortly.</div>`;
+  }
+  if(confSlot&&hasTF){
+    const tfBlock=(tf)=>{
+      if(!tf)return"";
+      const sigRows=tf.signals.map(s=>{
+        const c=s.vote>0.25?"#00D4AA":s.vote<-0.25?"#FF4757":"#888";
+        const arrow=s.vote>0.25?"▲":s.vote<-0.25?"▼":"−";
+        return `<div class="conf-sig"><span class="conf-sig-name">${s.name}</span><span class="conf-sig-note">${s.note}</span><span class="conf-sig-vote" style="color:${c}">${arrow}</span></div>`;
+      }).join("");
+      const scoreColor=tf.score>15?"#00D4AA":tf.score<-15?"#FF4757":"#FFB347";
+      return `<div class="conf-tf">
+        <div class="conf-tf-head"><span class="conf-tf-label">${tf.label}</span><span class="conf-tf-score" style="color:${scoreColor}">${tf.score>0?"+":""}${tf.score} · ${tf.bullVotes}↑ ${tf.bearVotes}↓</span></div>
+        ${sigRows}
+      </div>`;
+    };
+    const v=analysis.verdict;
+    const agreeColor=v.allAgree?"#00D4AA":v.majorityAgree?"#FFB347":"#FF4757";
+    const agreeText=v.allAgree?"✓ ALL TIMEFRAMES AGREE — highest conviction":v.majorityAgree?"~ MAJORITY AGREE — moderate conviction":"✗ TIMEFRAMES CONFLICT — stay flat";
+    confSlot.innerHTML=`
+      <div class="subsection-label">— Confluence Analysis (${analysis.mtf.short?analysis.mtf.short.total:0} indicators × 3 timeframes)</div>
+      <div class="agree-banner" style="background:${hexAlpha(agreeColor,0.1)};border:1px solid ${hexAlpha(agreeColor,0.3)};color:${agreeColor}">${agreeText}</div>
+      ${tfBlock(analysis.mtf.long)}
+      ${tfBlock(analysis.mtf.medium)}
+      ${tfBlock(analysis.mtf.short)}`;
+  }
+
   requestAnimationFrame(()=>{
     const canvas=document.getElementById("priceChart");
     if(!canvas)return;
@@ -501,7 +555,7 @@ function startRefresh(){
       const json=await res.json();
       if(!json.ok)return;
       liveQuote=json.quote;liveBars=json.bars;
-      liveAnalysis=computeSignal(liveQuote);
+      liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars);
       renderCard(liveQuote,liveBars,liveAnalysis,true);
       renderAssets();countdown=30;
     }catch(e){console.error("Refresh error",e);}
@@ -518,13 +572,37 @@ async function analyze(asset){
     const json=await res.json();
     if(!json.ok)throw new Error(json.error||"Server error");
     liveQuote=json.quote;liveBars=json.bars;
-    liveAnalysis=computeSignal(liveQuote);
+    liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars);
     renderCard(liveQuote,liveBars,liveAnalysis,false);
     renderAssets();startRefresh();
+    // Kick off backtest in background
+    loadBacktest(asset);
   }catch(e){
     showError("Could not fetch live data. Check your connection.");
     console.error(e);
   }
+}
+
+async function loadBacktest(asset){
+  try{
+    const res=await fetch(`${SERVER}/api/backtest/${encodeURIComponent(asset)}`);
+    const json=await res.json();
+    if(json.ok&&json.backtest){
+      const el=document.getElementById("backtestSlot");
+      if(el){
+        const bt=json.backtest;
+        const wrColor=bt.winRate>=55?"#00D4AA":bt.winRate>=45?"#FFB347":"#FF4757";
+        el.innerHTML=`
+          <div class="subsection-label">— Strategy Backtest (real historical data)</div>
+          <div class="bt-grid">
+            <div class="bt-box"><div class="bt-val" style="color:${wrColor}">${bt.winRate}%</div><div class="bt-lbl">Win Rate</div></div>
+            <div class="bt-box"><div class="bt-val" style="color:#F0F0F0">${bt.trades}</div><div class="bt-lbl">Trades Tested</div></div>
+            <div class="bt-box"><div class="bt-val" style="color:${bt.avgReturn>=0?'#00D4AA':'#FF4757'}">${bt.avgReturn>=0?'+':''}${bt.avgReturn}%</div><div class="bt-lbl">Avg / Trade</div></div>
+          </div>
+          <div class="bt-note">Tested over ${bt.period}, ${bt.horizon}. This is how the confluence strategy actually performed on ${asset}'s past month. Past results don't guarantee future ones.</div>`;
+      }
+    }
+  }catch(e){console.error("Backtest error",e);}
 }
 // ── HIGH CONVICTION SCANNER ──
 async function scanMarkets(){
@@ -535,27 +613,40 @@ async function scanMarkets(){
   try{
     const res=await fetch(`${SERVER}/api/scan/${activeClass}`);
     const json=await res.json();
-    if(!json.ok||!json.quotes||json.quotes.length===0)throw new Error("no data");
-    const quotes=json.quotes;
-    quotes.sort((a,b)=>Math.abs(parseFloat(b.changePct))-Math.abs(parseFloat(a.changePct)));
-    const top=quotes.slice(0,3);
-    panel.innerHTML=top.map((q,i)=>{
-      const ch=parseFloat(q.changePct);
-      const dir=ch>=0?"▲ LONG BIAS":"▼ SHORT BIAS";
-      const c=ch>=0?"#00D4AA":"#FF4757";
-      const strength=Math.abs(ch)>2?"VERY STRONG":Math.abs(ch)>1?"STRONG":"MODERATE";
-      return `<div class="conv-card">
+    if(!json.ok||!json.results||json.results.length===0)throw new Error("no data");
+    // Rank by confluence: prefer aligned timeframes + high absolute score
+    const ranked=json.results.map(r=>{
+      const v=r.verdict||{score:0,allAgree:false,majorityAgree:false,confidence:0};
+      const alignBonus=v.allAgree?40:v.majorityAgree?15:0;
+      const conviction=Math.abs(v.score)+alignBonus;
+      return {...r,conviction,v};
+    }).sort((a,b)=>b.conviction-a.conviction);
+    const top=ranked.slice(0,3);
+    panel.innerHTML=top.map((r,i)=>{
+      const v=r.v;
+      const isLong=v.score>0;
+      const c=v.score>15?"#00D4AA":v.score<-15?"#FF4757":"#FFB347";
+      const align=v.allAgree?"ALL TFs ALIGNED":v.majorityAgree?"MAJORITY ALIGNED":"MIXED SIGNALS";
+      return `<div class="conv-card" data-asset="${encodeURIComponent(r.asset)}" style="cursor:pointer">
         <div class="conv-rank" style="color:${c}">${i+1}</div>
         <div class="conv-info">
-          <div class="conv-asset">${q.asset}</div>
-          <div class="conv-price">${fmtPrice(q.price)} · ${dir}</div>
+          <div class="conv-asset">${r.asset} · ${v.signal||"NEUTRAL"}</div>
+          <div class="conv-price">${fmtPrice(r.quote.price)} · ${align}</div>
         </div>
         <div class="conv-right">
-          <div class="conv-change" style="color:${c}">${ch>=0?"+":""}${q.changePct}%</div>
-          <div class="conv-strength">${strength} MOMENTUM</div>
+          <div class="conv-change" style="color:${c}">${v.confidence||0}%</div>
+          <div class="conv-strength">CONFIDENCE</div>
         </div>
       </div>`;
     }).join("");
+    // Attach click handlers safely (avoids inline-string escaping issues with / in forex names)
+    panel.querySelectorAll(".conv-card").forEach(card=>{
+      card.onclick=()=>{
+        const a=decodeURIComponent(card.getAttribute("data-asset"));
+        analyze(a);
+        window.scrollTo({top:0,behavior:"smooth"});
+      };
+    });
   }catch(e){
     panel.innerHTML=`<div class="error-box">Scan failed — try again.</div>`;
   }
