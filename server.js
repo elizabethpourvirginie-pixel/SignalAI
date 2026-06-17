@@ -108,6 +108,36 @@ function atr(bars, period=14) {
   return sum/period;
 }
 
+// Support/Resistance from swing highs and lows
+function supportResistance(bars, lookback=3) {
+  if (bars.length < lookback*2+1) return { supports:[], resistances:[] };
+  const highs=[], lows=[];
+  for (let i=lookback;i<bars.length-lookback;i++){
+    let isHigh=true, isLow=true;
+    for (let j=1;j<=lookback;j++){
+      if (bars[i].h<bars[i-j].h||bars[i].h<bars[i+j].h) isHigh=false;
+      if (bars[i].l>bars[i-j].l||bars[i].l>bars[i+j].l) isLow=false;
+    }
+    if (isHigh) highs.push(bars[i].h);
+    if (isLow) lows.push(bars[i].l);
+  }
+  const price=bars[bars.length-1].c;
+  // Cluster nearby levels (within 0.3%)
+  function cluster(levels){
+    levels.sort((a,b)=>a-b);
+    const out=[];
+    for(const l of levels){
+      const last=out[out.length-1];
+      if(last&&Math.abs(l-last.price)/last.price<0.003){last.price=(last.price*last.count+l)/(last.count+1);last.count++;}
+      else out.push({price:l,count:1});
+    }
+    return out.sort((a,b)=>b.count-a.count);
+  }
+  const res=cluster(highs).filter(r=>r.price>price).slice(0,3);
+  const sup=cluster(lows).filter(s=>s.price<price).slice(0,3);
+  return { supports:sup.map(s=>+s.price.toFixed(price>100?2:5)), resistances:res.map(r=>+r.price.toFixed(price>100?2:5)) };
+}
+
 // ════════════ CONFLUENCE SCORING ════════════
 // Each indicator votes bullish(+1)/bearish(-1)/neutral(0). We aggregate.
 function analyzeBars(bars) {
@@ -288,7 +318,49 @@ async function backtest(ticker) {
   };
 }
 
-// ════════════ QUOTE ════════════
+// ════════════ TRACK RECORD ════════════
+// Reconstructs the bot's REAL historical performance by replaying the exact
+// confluence strategy over each asset's actual price history. This is honest:
+// it shows how the signals WOULD have performed, computed from real data,
+// not cherry-picked or fabricated.
+async function trackRecord(cls) {
+  const assets = CLASS_ASSETS[cls];
+  if (!assets) return null;
+  const perAsset = [];
+  let totalTrades=0, totalWins=0, totalRet=0;
+
+  for (let i=0;i<assets.length;i+=2){
+    const batch=assets.slice(i,i+2);
+    const results=await Promise.allSettled(batch.map(async a=>{
+      const ticker=SYMBOL_MAP[a];
+      const bt=await backtest(ticker);
+      return { asset:a, ...bt };
+    }));
+    results.forEach(r=>{
+      if(r.status==="fulfilled"&&r.value&&r.value.trades>0){
+        perAsset.push(r.value);
+        totalTrades+=r.value.trades;
+        totalWins+=Math.round(r.value.trades*r.value.winRate/100);
+        totalRet+=parseFloat(r.value.avgReturn)*r.value.trades;
+      }
+    });
+    if(i+2<assets.length)await new Promise(r=>setTimeout(r,300));
+  }
+
+  perAsset.sort((a,b)=>b.winRate-a.winRate);
+  return {
+    overall: {
+      trades: totalTrades,
+      winRate: totalTrades?Math.round((totalWins/totalTrades)*100):0,
+      avgReturn: totalTrades?(totalRet/totalTrades).toFixed(2):0,
+    },
+    perAsset,
+    period: "30 days, 1h bars",
+    note: "Strategy replayed on real historical price data. Honest reconstruction — not a promise of future results.",
+  };
+}
+
+// Quote
 async function getQuote(asset) {
   const now=Date.now();
   if(cache[asset]&&(now-cache[asset].ts)<CACHE_TTL)return cache[asset].data;
@@ -323,21 +395,31 @@ app.get('/api/analyze/:asset', async (req,res)=>{
     const ticker=SYMBOL_MAP[asset];
     if(!ticker)throw new Error("Unknown asset");
     const quote=await getQuote(asset);
-    let mtf, verdict;
+    let mtf, verdict, sr;
     try {
       mtf=await multiTimeframe(ticker);
       verdict=finalVerdict(mtf);
+      sr=mtf.bars&&mtf.bars.length?supportResistance(mtf.bars,3):{supports:[],resistances:[]};
     } catch(e) {
       mtf={short:null,medium:null,long:null,bars:[],atr:null};
       verdict=null;
+      sr={supports:[],resistances:[]};
     }
-    // Fallback verdict from daily change if indicators unavailable
     if(!verdict){
       const ch=parseFloat(quote.changePct);
       let signal=ch>1?"BUY":ch<-1?"SELL":"NEUTRAL";
       verdict={signal,confidence:50,score:Math.round(ch*10),allAgree:false,majorityAgree:false,fallback:true};
     }
-    res.json({ok:true, quote, mtf, verdict, bars:mtf.bars});
+    res.json({ok:true, quote, mtf, verdict, sr, bars:mtf.bars});
+  }catch(err){ res.status(500).json({ok:false,error:err.message}); }
+});
+
+// Public track record — honest historical performance
+app.get('/api/track/:cls', async (req,res)=>{
+  try{
+    const tr=await trackRecord(req.params.cls);
+    if(!tr)return res.status(400).json({ok:false,error:"Unknown class"});
+    res.json({ok:true, track:tr});
   }catch(err){ res.status(500).json({ok:false,error:err.message}); }
 });
 
