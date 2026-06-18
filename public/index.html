@@ -39,6 +39,22 @@ body{background:#0A0A0F;color:#F0F0F0;font-family:'DM Sans',sans-serif;min-heigh
 .asset-change{font-family:'DM Mono',monospace;font-size:10px;}
 .signal-badge{display:inline-block;padding:3px 10px;border-radius:4px;font-family:'DM Mono',monospace;font-size:10px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;}
 .action-boxes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+.conviction-card{border-radius:12px;padding:14px;margin-bottom:14px;}
+.conviction-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;}
+.conviction-label{font-family:'DM Mono',monospace;font-size:8px;color:#666;text-transform:uppercase;letter-spacing:0.14em;margin-bottom:3px;}
+.conviction-tier{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;letter-spacing:-0.02em;line-height:1;}
+.conviction-conf-wrap{text-align:right;}
+.conviction-conf{font-family:'Syne',sans-serif;font-size:24px;font-weight:800;letter-spacing:-0.02em;line-height:1;}
+.conviction-conf-label{font-family:'DM Mono',monospace;font-size:8px;color:#666;text-transform:uppercase;letter-spacing:0.1em;margin-top:2px;}
+.conviction-bar-track{height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;margin-bottom:10px;}
+.conviction-bar-fill{height:100%;border-radius:3px;transition:width 0.8s ease;}
+.conviction-desc{font-family:'DM Sans',sans-serif;font-size:12px;color:#B0B0C0;line-height:1.5;}
+.rr-banner{border-radius:10px;padding:11px 12px;margin-bottom:14px;}
+.rr-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;}
+.rr-ratio{font-family:'Syne',sans-serif;font-size:14px;font-weight:800;letter-spacing:-0.01em;}
+.rr-tag{font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.06em;}
+.rr-math{font-family:'DM Mono',monospace;font-size:10px;color:#999;margin-bottom:5px;}
+.rr-note{font-family:'DM Sans',sans-serif;font-size:11px;color:#999;line-height:1.45;}
 .action-box{border-radius:10px;padding:10px 12px;position:relative;overflow:hidden;}
 .action-box-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:4px;opacity:0.7;}
 .action-box-action{font-family:'Syne',sans-serif;font-size:13px;font-weight:800;letter-spacing:-0.01em;margin-bottom:2px;}
@@ -288,11 +304,13 @@ function buildAnalysis(quote, mtf, verdict, bars, sr, vp, corr, regime){
   const atrVal = mtf.atr || (price*0.01);
 
   const dir = isLong?1:isShort?-1:0;
-  // Entry: limit zone offset by 0.3 ATR in the pullback direction
+  // Stop must clear normal market noise or it gets hit prematurely by random wicks.
+  // 1.5 ATR stop (room to breathe) + 3 ATR target = true, survivable 2:1 reward:risk.
+  const STOP_MULT = 1.5;
+  const TARGET_MULT = 3.0;
   const entryNum = dir>0 ? price - atrVal*0.3 : dir<0 ? price + atrVal*0.3 : price;
-  // TP at 2x ATR, SL at 1x ATR — gives ~2:1 reward:risk
-  const targetNum = dir>0 ? entryNum + atrVal*2 : dir<0 ? entryNum - atrVal*2 : price + atrVal*2;
-  const slNum = dir>0 ? entryNum - atrVal : dir<0 ? entryNum + atrVal : price - atrVal;
+  const targetNum = dir>0 ? entryNum + atrVal*TARGET_MULT : dir<0 ? entryNum - atrVal*TARGET_MULT : price + atrVal*TARGET_MULT;
+  const slNum = dir>0 ? entryNum - atrVal*STOP_MULT : dir<0 ? entryNum + atrVal*STOP_MULT : price - atrVal*STOP_MULT;
   const supportNum = quote.low;
   const rr = dir!==0 ? (Math.abs(targetNum-entryNum)/Math.abs(entryNum-slNum)).toFixed(1) : "2.0";
 
@@ -515,6 +533,36 @@ function renderCard(quote, bars, analysis, isRefresh){
         </div>
         <span class="signal-badge" style="background:${hexAlpha(sc,0.13)};border:1px solid ${hexAlpha(sc,0.33)};color:${sc}">${analysis.signal}</span>
       </div>
+
+      <!-- ★ CONVICTION — dedicated prominent section -->
+      ${(()=>{
+        const v=analysis.verdict;
+        const conf=analysis.confidence||0;
+        // Conviction tier from confidence + timeframe agreement
+        let tier, tierColor, tierDesc;
+        const aligned = v&&v.allAgree;
+        const partial = v&&v.majorityAgree;
+        if(conf>=75&&aligned){tier="VERY HIGH";tierColor="#00D4AA";tierDesc="All timeframes aligned with strong confidence. The cleanest setups look like this.";}
+        else if(conf>=65&&(aligned||partial)){tier="HIGH";tierColor="#7EE8A2";tierDesc="Solid agreement across timeframes. A tradeable setup with the trend.";}
+        else if(conf>=55){tier="MODERATE";tierColor="#FFB347";tierDesc="Some agreement, but not full alignment. Trade smaller or wait for confirmation.";}
+        else{tier="LOW";tierColor="#FF8C69";tierDesc="Signals are mixed or weak. Best to stay flat — no trade is a position.";}
+        // Confidence bar fill
+        const barPct=Math.max(5,Math.min(100,conf));
+        return `<div class="conviction-card" style="border:1px solid ${hexAlpha(tierColor,0.35)};background:${hexAlpha(tierColor,0.07)}">
+          <div class="conviction-top">
+            <div class="conviction-tier-wrap">
+              <div class="conviction-label">Conviction</div>
+              <div class="conviction-tier" style="color:${tierColor}">${tier}</div>
+            </div>
+            <div class="conviction-conf-wrap">
+              <div class="conviction-conf" style="color:${tierColor}">${conf}%</div>
+              <div class="conviction-conf-label">confidence</div>
+            </div>
+          </div>
+          <div class="conviction-bar-track"><div class="conviction-bar-fill" style="width:${barPct}%;background:${tierColor};box-shadow:0 0 8px ${tierColor}88"></div></div>
+          <div class="conviction-desc">${tierDesc}</div>
+        </div>`;
+      })()}
       <!-- MARKET REGIME -->
       ${(()=>{
         const reg=analysis.regime;
@@ -577,6 +625,26 @@ function renderCard(quote, bars, analysis, isRefresh){
           <div class="action-box-icon">🛡</div>
         </div>
       </div>
+
+      <!-- REWARD:RISK DISCIPLINE -->
+      ${(()=>{
+        const {entryNum,targetNum,slNum,rr}=analysis.levels;
+        const reward=Math.abs(targetNum-entryNum);
+        const risk=Math.abs(entryNum-slNum);
+        const rewardPct=(reward/entryNum*100).toFixed(2);
+        const riskPct=(risk/entryNum*100).toFixed(2);
+        const ratioNum=parseFloat(rr);
+        const good=ratioNum>=1.8;
+        const col=good?"#00D4AA":"#FFB347";
+        return `<div class="rr-banner" style="border:1px solid ${hexAlpha(col,0.3)};background:${hexAlpha(col,0.06)}">
+          <div class="rr-top">
+            <span class="rr-ratio" style="color:${col}">${rr}:1 Reward : Risk</span>
+            <span class="rr-tag" style="color:${col}">${good?"✓ HEALTHY":"⚠ TIGHT"}</span>
+          </div>
+          <div class="rr-math">Target is <b style="color:#7EB8FF">+${rewardPct}%</b> away · Stop is <b style="color:#FF4757">−${riskPct}%</b> away</div>
+          <div class="rr-note">Win or lose, your target is ${ratioNum.toFixed(1)}× bigger than your risk. This is what makes a 50%+ win rate profitable. <b>Always set both — never move the stop wider.</b></div>
+        </div>`;
+      })()}
       <div class="chart-wrap mb14">
         <div class="chart-header">
           <span class="chart-title">— Live Price Chart (1-min bars)</span>
