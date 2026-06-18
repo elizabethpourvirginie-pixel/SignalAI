@@ -80,6 +80,8 @@ body{background:#0A0A0F;color:#F0F0F0;font-family:'DM Sans',sans-serif;min-heigh
 .rr-tag{font-family:'DM Mono',monospace;font-size:9px;font-weight:600;letter-spacing:0.06em;}
 .rr-math{font-family:'DM Mono',monospace;font-size:10px;color:#999;margin-bottom:5px;}
 .rr-note{font-family:'DM Sans',sans-serif;font-size:11px;color:#999;line-height:1.45;}
+.price-age{font-family:'DM Mono',monospace;font-size:8px;color:#FFB347;margin-left:6px;}
+.gate-note{font-family:'DM Sans',sans-serif;font-size:11px;color:#FFB347;line-height:1.45;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,179,71,0.15);}
 .action-box{border-radius:10px;padding:10px 12px;position:relative;overflow:hidden;}
 .action-box-label{font-family:'DM Mono',monospace;font-size:8px;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:4px;opacity:0.7;}
 .action-box-action{font-family:'Syne',sans-serif;font-size:13px;font-weight:800;letter-spacing:-0.01em;margin-bottom:2px;}
@@ -358,10 +360,36 @@ function buildAnalysis(quote, mtf, verdict, bars, sr, vp, corr, regime){
   const STOP_MULT = 1.5;
   const TARGET_MULT = 3.0;
   const entryNum = dir>0 ? price - atrVal*0.3 : dir<0 ? price + atrVal*0.3 : price;
-  const targetNum = dir>0 ? entryNum + atrVal*TARGET_MULT : dir<0 ? entryNum - atrVal*TARGET_MULT : price + atrVal*TARGET_MULT;
-  const slNum = dir>0 ? entryNum - atrVal*STOP_MULT : dir<0 ? entryNum + atrVal*STOP_MULT : price - atrVal*STOP_MULT;
+
+  // #3 STRUCTURE-BASED STOP: place stop just beyond nearest real support/resistance
+  // if one exists within a sensible range — stops behind structure get hit less by noise.
+  let slNum;
+  const atrStop = dir>0 ? entryNum - atrVal*STOP_MULT : entryNum + atrVal*STOP_MULT;
+  if(sr){
+    if(dir>0 && sr.supports && sr.supports.length){
+      // nearest support below entry
+      const below=sr.supports.filter(s=>s<entryNum).sort((a,b)=>b-a)[0];
+      if(below){
+        const structStop=below - atrVal*0.2; // small buffer beyond the level
+        // use structure stop only if it's not absurdly far (within 2.5 ATR)
+        if(Math.abs(entryNum-structStop) < atrVal*2.5) slNum=structStop;
+      }
+    } else if(dir<0 && sr.resistances && sr.resistances.length){
+      const above=sr.resistances.filter(r=>r>entryNum).sort((a,b)=>a-b)[0];
+      if(above){
+        const structStop=above + atrVal*0.2;
+        if(Math.abs(entryNum-structStop) < atrVal*2.5) slNum=structStop;
+      }
+    }
+  }
+  if(slNum===undefined) slNum = atrStop;
+
+  // Target keeps the reward:risk meaningful relative to the actual stop distance
+  const stopDist = Math.abs(entryNum - slNum);
+  const targetNum = dir>0 ? entryNum + stopDist*2 : dir<0 ? entryNum - stopDist*2 : price + atrVal*TARGET_MULT;
   const supportNum = quote.low;
   const rr = dir!==0 ? (Math.abs(targetNum-entryNum)/Math.abs(entryNum-slNum)).toFixed(1) : "2.0";
+  const stopIsStructural = slNum !== atrStop;
 
   // Momentum readings from the 3 timeframes
   const momentum = {
@@ -409,7 +437,7 @@ function buildAnalysis(quote, mtf, verdict, bars, sr, vp, corr, regime){
   return {signal,
     momentum,
     risk:{level:riskLevel,score:riskScore,atr:`${atrPct.toFixed(2)}% (${fmtPrice(atrVal)})`,align:verdict.allAgree?"All aligned":verdict.majorityAgree?"Majority aligned":"Not aligned"},
-    levels:{entryNum,targetNum,slNum,supportNum,rr},
+    levels:{entryNum,targetNum,slNum,supportNum,rr,stopIsStructural},
     confidence:verdict.confidence,timestamp:ts, rationale,
     verdict, mtf, sr: sr||{supports:[],resistances:[]},
     vp: vp||null, corr: corr||null, regime: regime||null,
@@ -606,6 +634,7 @@ function renderCard(quote, bars, analysis, isRefresh){
           <div class="asset-price-row">
             <span class="asset-price" style="color:${cls.color}">${fmtPrice(quote.price)}</span>
             <span class="asset-change" style="color:${changeColor}">${changeSign}${quote.change} (${changeSign}${quote.changePct}%)</span>
+            ${quote.priceAgeMin!=null&&quote.priceAgeMin>2?`<span class="price-age">~${quote.priceAgeMin}m delayed · confirm on your platform</span>`:""}
           </div>
         </div>
         <span class="signal-badge" style="background:${hexAlpha(sc,0.13)};border:1px solid ${hexAlpha(sc,0.33)};color:${sc}">${analysis.signal}</span>
@@ -625,7 +654,8 @@ function renderCard(quote, bars, analysis, isRefresh){
         else{tier="LOW";tierColor="#FF8C69";tierDesc="Signals are mixed or weak. Best to stay flat — no trade is a position.";}
         // Confidence bar fill
         const barPct=Math.max(5,Math.min(100,conf));
-        return `<div class="conviction-card" style="border:1px solid ${hexAlpha(tierColor,0.35)};background:${hexAlpha(tierColor,0.07)}">
+        const gateNote=(v&&v.gated)?`<div class="gate-note">⊘ ${v.gateReason}</div>`:"";
+        return `<div class="conviction-card" style="border:1px solid ${hexAlpha(tierColor,0.35)};background:${hexAlpha(tierColor,0.07)}">${gateNote?"":""}
           <div class="conviction-top">
             <div class="conviction-tier-wrap">
               <div class="conviction-label">Conviction <span class="info-icon" onclick="showInfo(&#39;conviction&#39;)">i</span></div>
@@ -638,6 +668,7 @@ function renderCard(quote, bars, analysis, isRefresh){
           </div>
           <div class="conviction-bar-track"><div class="conviction-bar-fill" style="width:${barPct}%;background:${tierColor};box-shadow:0 0 8px ${tierColor}88"></div></div>
           <div class="conviction-desc">${tierDesc}</div>
+          ${gateNote}
         </div>`;
       })()}
       <!-- MARKET REGIME -->
@@ -691,7 +722,7 @@ function renderCard(quote, bars, analysis, isRefresh){
           <div class="action-box-label" style="color:#FF4757">Stop Loss <span class="info-icon" onclick="showInfo(&#39;stoploss&#39;)">i</span></div>
           <div class="action-box-action" style="color:#FF4757">EXIT IF</div>
           <div class="action-box-price" style="color:#F0F0F0">${fmtPrice(slNum)}</div>
-          <div class="action-box-sub">Max loss limit</div>
+          <div class="action-box-sub">${analysis.levels.stopIsStructural?"Behind key level":"Max loss limit"}</div>
           <div class="action-box-icon">🛑</div>
         </div>
         <div class="action-box" style="background:rgba(46,204,138,0.08);border:1px solid rgba(46,204,138,0.25)">
