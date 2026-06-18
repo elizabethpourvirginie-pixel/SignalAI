@@ -211,7 +211,7 @@ canvas{display:block;width:100%;}
       <div class="section-label" style="margin-bottom:0">High Conviction — Strongest Movers</div>
       <button class="scan-btn" id="scanBtn" onclick="scanMarkets()">⌖ SCAN</button>
     </div>
-    <p class="section-note">Scans all markets in this category and ranks the strongest momentum right now. High probability — never guaranteed.</p>
+    <p class="section-note">Ranks the strongest setups in this category by confluence and timeframe alignment.</p>
     <div id="convictionPanel"></div>
   </div>
 
@@ -221,14 +221,14 @@ canvas{display:block;width:100%;}
       <div class="section-label" style="margin-bottom:0">Public Track Record — Our Honest Numbers</div>
       <button class="scan-btn" id="trackBtn" onclick="loadTrack()">↻ LOAD</button>
     </div>
-    <p class="section-note">The strategy replayed over real historical price data for every asset in this category. We show the real win rate — good or bad. No cherry-picking, no fake screenshots.</p>
+    <p class="section-note">The strategy tested on real historical data. Shows actual win rates, unfiltered.</p>
     <div id="trackPanel"></div>
   </div>
 
   <!-- POSITION SIZE CALCULATOR -->
   <div class="assets-section">
     <div class="section-label">Position Size Calculator — Trade the Right Amount</div>
-    <p class="section-note">The #1 rule of survival: never risk more than 1-2% per trade. This tells you exactly how big your position should be.</p>
+    <p class="section-note">Calculates your ideal position size based on account risk.</p>
     <div class="calc-form">
       <div class="calc-row">
         <label class="calc-label">Account balance ($)</label>
@@ -329,11 +329,39 @@ function buildAnalysis(quote, mtf, verdict, bars, sr, vp, corr, regime){
   const now=new Date();
   const ts=now.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})+" "+now.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+" UTC";
 
+  // Build a real rationale from the actual analysis
+  const rationale = (()=>{
+    const parts=[];
+    const reg=regime;
+    if(reg){
+      const regName=reg.regime==="trending-up"?"an uptrend":reg.regime==="trending-down"?"a downtrend":reg.regime==="ranging"?"a ranging market":"a transitioning market";
+      parts.push(`Market is in ${regName} (ADX ${reg.adx}).`);
+    }
+    // Strongest contributing signals from the swing timeframe
+    const tf=mtf.medium||mtf.short||mtf.long;
+    if(tf&&tf.signals){
+      const strong=tf.signals.filter(s=>Math.abs(s.vote)>0.4).slice(0,2);
+      if(strong.length)parts.push(strong.map(s=>s.note).join("; ")+".");
+    }
+    // Patterns / divergence
+    if(tf&&tf.divergence)parts.push(tf.divergence.note+".");
+    if(tf&&tf.patterns&&tf.patterns.length)parts.push(`Pattern: ${tf.patterns[0].name} — ${tf.patterns[0].note}.`);
+    // Timeframe agreement
+    if(verdict.allAgree)parts.push("All three timeframes are aligned, the strongest form of confirmation.");
+    else if(verdict.majorityAgree)parts.push("A majority of timeframes agree on direction.");
+    else parts.push("Timeframes are not aligned — caution warranted.");
+    // Correlation
+    if(corr&&corr.verdict==="confirmed")parts.push("Correlated assets confirm this direction.");
+    else if(corr&&corr.verdict==="conflicted")parts.push("Note: correlated assets are moving against this signal.");
+    if(signal==="NEUTRAL")parts.push("Net read is neutral — no clear edge right now. Waiting is the position.");
+    return parts.join(" ");
+  })();
+
   return {signal,
     momentum,
-    risk:{level:riskLevel,score:riskScore,atr:`${atrPct.toFixed(2)}% (${fmtPrice(atrVal)})`,vix:verdict.allAgree?"All TFs aligned":verdict.majorityAgree?"Majority aligned":"TFs conflicting"},
+    risk:{level:riskLevel,score:riskScore,atr:`${atrPct.toFixed(2)}% (${fmtPrice(atrVal)})`,align:verdict.allAgree?"All aligned":verdict.majorityAgree?"Majority aligned":"Not aligned"},
     levels:{entryNum,targetNum,slNum,supportNum,rr},
-    confidence:verdict.confidence,timestamp:ts,
+    confidence:verdict.confidence,timestamp:ts, rationale,
     verdict, mtf, sr: sr||{supports:[],resistances:[]},
     vp: vp||null, corr: corr||null, regime: regime||null,
   };
@@ -682,11 +710,11 @@ function renderCard(quote, bars, analysis, isRefresh){
         <div class="subsection-label">— Volatility & Risk</div>
         <div class="risk-row"><div class="risk-segments">${riskSegs}</div>
         <span class="risk-label" style="color:${rc}">${analysis.risk.level} RISK · ${analysis.risk.score}/100</span></div>
-        <div class="atr-line">ATR: ${analysis.risk.atr} · VIX corr: ${analysis.risk.vix}</div>
+        <div class="atr-line">ATR: ${analysis.risk.atr} · Timeframes: ${analysis.risk.align}</div>
       </div>
       <div class="rationale-box">
         <div class="rationale-label">AI Rationale</div>
-        <p class="rationale-text">${analysis.rationale}</p>
+        <p class="rationale-text">${analysis.rationale||"Analysis based on current multi-timeframe confluence."}</p>
       </div>
       <div class="card-footer">
         <span style="color:#333">${analysis.timestamp}</span>
