@@ -9,6 +9,31 @@
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
 ::-webkit-scrollbar{display:none;}
 body{background:#0A0A0F;color:#F0F0F0;font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden;}
+/* WELCOME WALKTHROUGH */
+.welcome-overlay{position:fixed;inset:0;z-index:1000;background:rgba(5,5,10,0.92);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;padding:24px;}
+.welcome-card{max-width:380px;width:100%;background:#0F0F16;border:1px solid rgba(0,212,170,0.2);border-radius:16px;padding:24px;animation:fadeUp 0.4s ease;}
+.welcome-step{min-height:180px;}
+.welcome-icon{font-size:36px;margin-bottom:14px;}
+.welcome-title{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;color:#F0F0F0;letter-spacing:-0.02em;margin-bottom:10px;}
+.welcome-text{font-family:'DM Sans',sans-serif;font-size:14px;color:#B0B0C0;line-height:1.6;}
+.welcome-text b{color:#00D4AA;}
+.welcome-dots{display:flex;gap:6px;justify-content:center;margin:18px 0;}
+.welcome-dot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,0.15);transition:all 0.3s;}
+.welcome-dot.active{background:#00D4AA;width:20px;border-radius:4px;}
+.welcome-btns{display:flex;justify-content:space-between;align-items:center;}
+.welcome-skip{background:none;border:none;color:#666;font-family:'DM Mono',monospace;font-size:11px;cursor:pointer;padding:8px;}
+.welcome-next{background:rgba(0,212,170,0.12);border:1px solid rgba(0,212,170,0.35);color:#00D4AA;font-family:'DM Mono',monospace;font-size:12px;font-weight:600;padding:10px 20px;border-radius:8px;cursor:pointer;}
+/* INFO POPUP */
+.info-overlay{position:fixed;inset:0;z-index:1001;background:rgba(5,5,10,0.85);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px;}
+.info-card{max-width:340px;width:100%;background:#0F0F16;border:1px solid rgba(0,212,170,0.2);border-radius:14px;padding:20px;animation:fadeUp 0.3s ease;}
+.info-term{font-family:'Syne',sans-serif;font-size:17px;font-weight:800;color:#00D4AA;margin-bottom:10px;letter-spacing:-0.01em;}
+.info-body{font-family:'DM Sans',sans-serif;font-size:13px;color:#B0B0C0;line-height:1.6;margin-bottom:16px;}
+.info-body b{color:#F0F0F0;}
+.info-close{width:100%;background:rgba(0,212,170,0.12);border:1px solid rgba(0,212,170,0.35);color:#00D4AA;font-family:'DM Mono',monospace;font-size:12px;font-weight:600;padding:10px;border-radius:8px;cursor:pointer;}
+/* HELP BUTTON + INFO ICONS */
+.help-btn{width:24px;height:24px;border-radius:50%;border:1px solid rgba(0,212,170,0.3);background:rgba(0,212,170,0.08);color:#00D4AA;font-family:'DM Mono',monospace;font-size:12px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
+.info-icon{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;border:1px solid rgba(160,160,184,0.4);color:#888;font-size:9px;font-family:'DM Mono',monospace;cursor:pointer;margin-left:4px;vertical-align:middle;font-weight:600;}
+.info-icon:hover{border-color:#00D4AA;color:#00D4AA;}
 .bg-grid{position:fixed;inset:0;pointer-events:none;z-index:0;background-image:linear-gradient(rgba(0,212,170,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(0,212,170,0.03) 1px,transparent 1px);background-size:40px 40px;}
 .glow-orb{position:fixed;top:-100px;right:-100px;width:400px;height:400px;border-radius:50%;pointer-events:none;z-index:0;transition:background 0.5s ease;}
 .app{position:relative;z-index:1;max-width:480px;margin:0 auto;padding:0 0 80px;}
@@ -183,6 +208,27 @@ canvas{display:block;width:100%;}
 </style>
 </head>
 <body>
+<!-- WELCOME WALKTHROUGH -->
+<div class="welcome-overlay" id="welcomeOverlay" style="display:none">
+  <div class="welcome-card">
+    <div class="welcome-step" id="welcomeStep"></div>
+    <div class="welcome-dots" id="welcomeDots"></div>
+    <div class="welcome-btns">
+      <button class="welcome-skip" onclick="closeWelcome()">Skip</button>
+      <button class="welcome-next" id="welcomeNext" onclick="nextWelcome()">Next →</button>
+    </div>
+  </div>
+</div>
+
+<!-- INFO POPUP -->
+<div class="info-overlay" id="infoOverlay" style="display:none" onclick="closeInfo()">
+  <div class="info-card" onclick="event.stopPropagation()">
+    <div class="info-term" id="infoTerm"></div>
+    <div class="info-body" id="infoBody"></div>
+    <button class="info-close" onclick="closeInfo()">Got it</button>
+  </div>
+</div>
+
 <div class="bg-grid"></div>
 <div class="glow-orb" id="glowOrb"></div>
 <div class="app">
@@ -191,7 +237,10 @@ canvas{display:block;width:100%;}
       <div class="logo">SIGNAL<span id="logoDot" style="color:#00D4AA">.</span>AI</div>
       <div class="logo-sub">Quant · Momentum · Risk</div>
     </div>
-    <div class="logo-icon" id="logoIcon" style="background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.2);color:#00D4AA">◈</div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <button class="help-btn" onclick="startWelcome()" title="How to use">?</button>
+      <div class="logo-icon" id="logoIcon" style="background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.2);color:#00D4AA">◈</div>
+    </div>
   </div>
   <div class="tabs" id="tabs"></div>
   <div class="assets-section">
@@ -227,7 +276,7 @@ canvas{display:block;width:100%;}
 
   <!-- POSITION SIZE CALCULATOR -->
   <div class="assets-section">
-    <div class="section-label">Position Size Calculator — Trade the Right Amount</div>
+    <div class="section-label">Position Size Calculator <span class="info-icon" onclick="showInfo(&#39;position_size&#39;)">i</span></div>
     <p class="section-note">Calculates your ideal position size based on account risk.</p>
     <div class="calc-form">
       <div class="calc-row">
@@ -579,7 +628,7 @@ function renderCard(quote, bars, analysis, isRefresh){
         return `<div class="conviction-card" style="border:1px solid ${hexAlpha(tierColor,0.35)};background:${hexAlpha(tierColor,0.07)}">
           <div class="conviction-top">
             <div class="conviction-tier-wrap">
-              <div class="conviction-label">Conviction</div>
+              <div class="conviction-label">Conviction <span class="info-icon" onclick="showInfo(&#39;conviction&#39;)">i</span></div>
               <div class="conviction-tier" style="color:${tierColor}">${tier}</div>
             </div>
             <div class="conviction-conf-wrap">
@@ -632,21 +681,21 @@ function renderCard(quote, bars, analysis, isRefresh){
           <div class="action-box-icon">${entryIcon}</div>
         </div>
         <div class="action-box" style="background:rgba(126,184,255,0.08);border:1px solid rgba(126,184,255,0.25)">
-          <div class="action-box-label" style="color:#7EB8FF">Take Profit</div>
+          <div class="action-box-label" style="color:#7EB8FF">Take Profit <span class="info-icon" onclick="showInfo(&#39;takeprofit&#39;)">i</span></div>
           <div class="action-box-action" style="color:#7EB8FF">EXIT AT</div>
           <div class="action-box-price" style="color:#F0F0F0">${fmtPrice(targetNum)}</div>
           <div class="action-box-sub">R:R ratio ${rr}:1</div>
           <div class="action-box-icon">🎯</div>
         </div>
         <div class="action-box" style="background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.25)">
-          <div class="action-box-label" style="color:#FF4757">Stop Loss</div>
+          <div class="action-box-label" style="color:#FF4757">Stop Loss <span class="info-icon" onclick="showInfo(&#39;stoploss&#39;)">i</span></div>
           <div class="action-box-action" style="color:#FF4757">EXIT IF</div>
           <div class="action-box-price" style="color:#F0F0F0">${fmtPrice(slNum)}</div>
           <div class="action-box-sub">Max loss limit</div>
           <div class="action-box-icon">🛑</div>
         </div>
         <div class="action-box" style="background:rgba(46,204,138,0.08);border:1px solid rgba(46,204,138,0.25)">
-          <div class="action-box-label" style="color:#2ECC8A">Support</div>
+          <div class="action-box-label" style="color:#2ECC8A">Support <span class="info-icon" onclick="showInfo(&#39;support&#39;)">i</span></div>
           <div class="action-box-action" style="color:#2ECC8A">FLOOR AT</div>
           <div class="action-box-price" style="color:#F0F0F0">${fmtPrice(supportNum)}</div>
           <div class="action-box-sub">Today's low</div>
@@ -666,7 +715,7 @@ function renderCard(quote, bars, analysis, isRefresh){
         const col=good?"#00D4AA":"#FFB347";
         return `<div class="rr-banner" style="border:1px solid ${hexAlpha(col,0.3)};background:${hexAlpha(col,0.06)}">
           <div class="rr-top">
-            <span class="rr-ratio" style="color:${col}">${rr}:1 Reward : Risk</span>
+            <span class="rr-ratio" style="color:${col}">${rr}:1 Reward : Risk <span class="info-icon" onclick="showInfo(&#39;reward_risk&#39;)">i</span></span>
             <span class="rr-tag" style="color:${col}">${good?"✓ HEALTHY":"⚠ TIGHT"}</span>
           </div>
           <div class="rr-math">Target is <b style="color:#7EB8FF">+${rewardPct}%</b> away · Stop is <b style="color:#FF4757">−${riskPct}%</b> away</div>
@@ -694,7 +743,7 @@ function renderCard(quote, bars, analysis, isRefresh){
         </div>`:""}
       </div>
       <div class="mb14">
-        <div class="subsection-label">— Multi-Timeframe Momentum (confluence score)</div>
+        <div class="subsection-label">— Multi-Timeframe Momentum <span class="info-icon" onclick="showInfo(&#39;confluence&#39;)">i</span></div>
         ${momRows}
       </div>
       <!-- CONFLUENCE BREAKDOWN -->
@@ -707,7 +756,7 @@ function renderCard(quote, bars, analysis, isRefresh){
       </div>
 
       <div class="mb14">
-        <div class="subsection-label">— Volatility & Risk</div>
+        <div class="subsection-label">— Volatility & Risk <span class="info-icon" onclick="showInfo(&#39;atr&#39;)">i</span></div>
         <div class="risk-row"><div class="risk-segments">${riskSegs}</div>
         <span class="risk-label" style="color:${rc}">${analysis.risk.level} RISK · ${analysis.risk.score}/100</span></div>
         <div class="atr-line">ATR: ${analysis.risk.atr} · Timeframes: ${analysis.risk.align}</div>
@@ -748,7 +797,7 @@ function renderCard(quote, bars, analysis, isRefresh){
     const agreeColor=v.allAgree?"#00D4AA":v.majorityAgree?"#FFB347":"#FF4757";
     const agreeText=v.allAgree?"✓ ALL TIMEFRAMES AGREE — highest conviction":v.majorityAgree?"~ MAJORITY AGREE — moderate conviction":"✗ TIMEFRAMES CONFLICT — stay flat";
     confSlot.innerHTML=`
-      <div class="subsection-label">— Confluence Analysis (${analysis.mtf.short?analysis.mtf.short.total:0} indicators × 3 timeframes)</div>
+      <div class="subsection-label">— Confluence Analysis <span class="info-icon" onclick="showInfo(&#39;confluence&#39;)">i</span></div>
       <div class="agree-banner" style="background:${hexAlpha(agreeColor,0.1)};border:1px solid ${hexAlpha(agreeColor,0.3)};color:${agreeColor}">${agreeText}</div>
       ${tfBlock(analysis.mtf.long)}
       ${tfBlock(analysis.mtf.medium)}
@@ -776,7 +825,7 @@ function renderCard(quote, bars, analysis, isRefresh){
     // Volume profile
     if(analysis.vp){
       extra+=`<div class="vp-box">
-        <div class="subsection-label" style="margin-bottom:5px">— Volume Profile (where big players sit)</div>
+        <div class="subsection-label" style="margin-bottom:5px">— Volume Profile <span class="info-icon" onclick="showInfo(&#39;volume_profile&#39;)">i</span></div>
         <div class="vp-line">Point of Control: <b style="color:#7EB8FF">${fmtPrice(analysis.vp.poc)}</b> <span style="color:#555">— highest-volume price, acts as a magnet</span></div>
         <div class="vp-line">High-volume zones: ${analysis.vp.nodes.map(n=>`<b style="color:#C0C0D0">${fmtPrice(n)}</b>`).join(" · ")}</div>
       </div>`;
@@ -1305,6 +1354,76 @@ function calcPosition(){
 function fmtMoney(n){
   return "$"+n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
 }
+
+// ════════════ BEGINNER HELP SYSTEM ════════════
+const WELCOME_STEPS = [
+  { icon:"\u{1F44B}", title:"Welcome to SIGNAL.AI", text:"This tool analyzes real market data to spot potential trade setups across stocks, forex, crypto and commodities. Let's take 30 seconds to show you how it works." },
+  { icon:"\u{1F4CA}", title:"1. Pick an asset", text:"Tap a category, then tap any asset. The app pulls <b>live prices</b> and runs them through several analysis layers to produce a signal: Buy, Sell, or Neutral." },
+  { icon:"\u{1F3AF}", title:"2. Read the Conviction", text:"The big <b>Conviction</b> box tells you how confident the signal is. <b>VERY HIGH</b> means everything lines up. <b>LOW</b> means stay out — and that's a valid answer. Most of the time, doing nothing is the smart move." },
+  { icon:"\u{1F6E1}", title:"3. The most important rule", text:"Every analysis gives you an <b>Entry, Take Profit, and Stop Loss</b>. Always use the stop loss. Never risk more than <b>1-2% of your account</b> on one trade. Use the Position Calculator to size correctly. This is how you survive." },
+  { icon:"\u{2696}", title:"4. Win small, lose smaller", text:"You don't need to win every trade. With a <b>2:1 reward-to-risk</b>, you can be wrong half the time and still profit. The app enforces this — follow the levels it gives you and don't move your stop." },
+  { icon:"\u{1F50D}", title:"5. Trust but verify", text:"Tap <b>LOAD</b> under Track Record to see the strategy's real historical win rate. No signal is guaranteed — anyone promising certainty is lying. This tool gives you an edge, not a crystal ball. Trade responsibly." },
+];
+let welcomeIdx=0;
+
+function startWelcome(){
+  welcomeIdx=0;
+  document.getElementById("welcomeOverlay").style.display="flex";
+  renderWelcome();
+}
+function renderWelcome(){
+  const s=WELCOME_STEPS[welcomeIdx];
+  document.getElementById("welcomeStep").innerHTML=`<div class="welcome-icon">${s.icon}</div><div class="welcome-title">${s.title}</div><div class="welcome-text">${s.text}</div>`;
+  document.getElementById("welcomeDots").innerHTML=WELCOME_STEPS.map((_,i)=>`<div class="welcome-dot ${i===welcomeIdx?'active':''}"></div>`).join("");
+  document.getElementById("welcomeNext").textContent=welcomeIdx===WELCOME_STEPS.length-1?"Start trading":"Next \u2192";
+}
+function nextWelcome(){
+  if(welcomeIdx<WELCOME_STEPS.length-1){welcomeIdx++;renderWelcome();}
+  else closeWelcome();
+}
+function closeWelcome(){
+  document.getElementById("welcomeOverlay").style.display="none";
+  try{localStorage.setItem("sig_seen_welcome","1");}catch(e){}
+}
+
+// ── Glossary: tap any term for a plain-English explanation ──
+const GLOSSARY = {
+  signal:{term:"Buy / Sell / Neutral Signal",body:"The app's overall read. <b>Buy</b> = conditions favor price rising. <b>Sell</b> = favor falling. <b>Neutral</b> = no clear edge, best to wait. A signal is a probability, never a certainty."},
+  conviction:{term:"Conviction",body:"How strongly the analysis agrees with itself. <b>VERY HIGH</b> means all timeframes and indicators line up. <b>LOW</b> means they conflict — usually a sign to stay out. Higher conviction = higher-probability setup."},
+  confidence:{term:"Confidence %",body:"A score from the strength of the signals and how well the timeframes agree. It's a relative measure of setup quality — not a promise of success. 70%+ is strong; below 55% is weak."},
+  rsi:{term:"RSI (Relative Strength Index)",body:"Measures if a price has moved too far, too fast. <b>Below 30</b> = oversold (may bounce up). <b>Above 70</b> = overbought (may pull back). It works best in calm, ranging markets."},
+  macd:{term:"MACD",body:"Tracks momentum and trend direction by comparing two moving averages. When it turns positive, momentum is shifting up; negative, shifting down. Good for confirming a trend."},
+  atr:{term:"ATR (Average True Range)",body:"How much an asset typically moves in a given period — its 'normal' volatility. The app uses it to set stop losses far enough away that random noise won't trigger them, but close enough to protect you."},
+  confluence:{term:"Confluence",body:"When multiple independent indicators agree on the same direction. One indicator can be wrong easily; six pointing the same way is a much stronger signal. This app only fires strong signals when enough agree."},
+  regime:{term:"Market Regime",body:"Whether the market is <b>trending</b> (moving steadily one way) or <b>ranging</b> (chopping sideways). Different tools work in each. The app detects the regime and trusts the right indicators for current conditions."},
+  reward_risk:{term:"Reward : Risk Ratio",body:"How much you stand to gain versus lose. <b>2:1</b> means your target is twice as far as your stop. With 2:1, you can lose more than half your trades and still make money. This is the single most important concept in trading."},
+  stoploss:{term:"Stop Loss",body:"A price where you automatically exit a losing trade to cap the damage. <b>Always set one.</b> The #1 reason beginners blow up is letting a small loss become a huge one. A stop loss removes that risk."},
+  takeprofit:{term:"Take Profit",body:"A price where you exit a winning trade to lock in gains. Setting it in advance stops greed from turning a winner into a loser when price reverses."},
+  support:{term:"Support & Resistance",body:"<b>Support</b> = a price level where buyers have stepped in before (a floor). <b>Resistance</b> = where sellers have appeared (a ceiling). Price often reacts at these levels, making them useful for entries and exits."},
+  volume_profile:{term:"Volume Profile",body:"Shows the price levels where the most trading happened — where big players are positioned. The 'Point of Control' often acts like a magnet, pulling price back toward it."},
+  divergence:{term:"Divergence",body:"When price makes a new high (or low) but momentum doesn't follow. It's an early warning that the current move may be running out of steam and could reverse."},
+  position_size:{term:"Position Size",body:"How much to buy or sell. Calculated so that if your stop loss is hit, you only lose your chosen % (1-2%) of your account. Correct sizing is what lets you survive a losing streak."},
+};
+
+function showInfo(key){
+  const g=GLOSSARY[key];
+  if(!g)return;
+  document.getElementById("infoTerm").textContent=g.term;
+  document.getElementById("infoBody").innerHTML=g.body;
+  document.getElementById("infoOverlay").style.display="flex";
+}
+function closeInfo(){ document.getElementById("infoOverlay").style.display="none"; }
+
+// Make showInfo reachable from inline onclick
+window.showInfo=showInfo;
+
+// Show welcome automatically on first ever visit
+function maybeShowWelcome(){
+  let seen=false;
+  try{seen=localStorage.getItem("sig_seen_welcome")==="1";}catch(e){}
+  if(!seen)setTimeout(startWelcome,600);
+}
+maybeShowWelcome();
 
 updateTheme();renderTabs();renderAssets();
 </script>
