@@ -532,16 +532,66 @@ async function getQuote(asset) {
   if(!ticker)throw new Error(`Unknown asset: ${asset}`);
   const result=await fetchChart(ticker,"5d","1d");
   const meta=result.meta;
-  const price=meta.regularMarketPrice;
+  let price=meta.regularMarketPrice;
   const prev=meta.previousClose||meta.chartPreviousClose||price;
   const open=meta.regularMarketOpen??prev;
   const high=meta.regularMarketDayHigh??Math.max(price,prev);
   const low=meta.regularMarketDayLow??Math.min(price,prev);
+
+  // FRESHNESS: try to get a more recent intraday close than the daily snapshot.
+  // The daily meta can lag; the latest 1-minute bar is closer to live.
+  let priceAgeMs=null;
+  try{
+    const intraday=await fetchChart(ticker,"1d","1m");
+    const closes=intraday.indicators?.quote?.[0]?.close||[];
+    const ts=intraday.timestamp||[];
+    for(let i=closes.length-1;i>=0;i--){
+      if(closes[i]!=null){
+        price=closes[i];
+        priceAgeMs=Date.now()-(ts[i]*1000);
+        break;
+      }
+    }
+  }catch(e){}
+
   const change=price-prev;
   const changePct=prev?((change/prev)*100).toFixed(2):"0.00";
-  const data={asset,ticker,price,open,high,low,prev,change:change.toFixed(4),changePct,currency:meta.currency||"USD",marketState:meta.marketState||"REGULAR",timestamp:new Date().toISOString()};
+  const data={asset,ticker,price,open,high,low,prev,change:change.toFixed(4),changePct,
+    currency:meta.currency||"USD",marketState:meta.marketState||"REGULAR",
+    priceAgeMin: priceAgeMs!=null?Math.round(priceAgeMs/60000):null,
+    timestamp:new Date().toISOString()};
   cache[asset]={ts:now,data};
   return data;
+}
+
+// ════════════ #2 SIGNAL QUALITY GATE ════════════
+// Withhold marginal signals. Only surface Buy/Sell when conviction clears a higher bar.
+function applyQualityGate(verdict, mtf) {
+  if(!verdict) return verdict;
+  const v = {...verdict};
+  // Count how many timeframes have data and their agreement
+  const tfs=[mtf.short,mtf.medium,mtf.long].filter(Boolean);
+  const strongTfs=tfs.filter(t=>Math.abs(t.score)>30).length;
+
+  // Demote weak signals to NEUTRAL — better to skip than take a coin-flip
+  if(!v.fallback){
+    const absScore=Math.abs(v.score);
+    // Require either strong score OR timeframe alignment to keep a directional call
+    if(absScore<25 && !v.allAgree){
+      v.signal="NEUTRAL";
+      v.gated=true;
+      v.gateReason="Signal too weak and timeframes not aligned — skipping is the higher-probability choice.";
+    } else if(absScore<18){
+      v.signal="NEUTRAL";
+      v.gated=true;
+      v.gateReason="Conviction below the quality threshold — no clear edge.";
+    } else if(strongTfs===0 && !v.majorityAgree){
+      v.signal="NEUTRAL";
+      v.gated=true;
+      v.gateReason="No timeframe shows strong conviction — waiting for a cleaner setup.";
+    }
+  }
+  return v;
 }
 
 // ════════════ #4 CROSS-ASSET CORRELATION ════════════
@@ -866,6 +916,8 @@ app.get('/api/analyze/:asset', async (req,res)=>{
       let signal=ch>1?"BUY":ch<-1?"SELL":"NEUTRAL";
       verdict={signal,confidence:50,score:Math.round(ch*10),allAgree:false,majorityAgree:false,fallback:true};
     }
+    // #2 QUALITY GATE — withhold marginal signals
+    verdict = applyQualityGate(verdict, mtf);
     // Correlation adjusts confidence: confirmation boosts, conflict reduces
     if(corr && verdict && !verdict.fallback){
       if(corr.verdict==="confirmed") verdict.confidence=Math.min(92, verdict.confidence+6);
