@@ -655,6 +655,85 @@ function volumeProfile(bars, buckets=20) {
   return { poc:+poc.toFixed(max>100?2:5), nodes };
 }
 
+// ════════════ MARKET SESSIONS ════════════
+// Major FX/market sessions in UTC hours. Each: name, open, close (24h UTC).
+const SESSIONS = [
+  { key:"sydney", name:"Sydney",   open:21, close:6,  emoji:"\u{1F1E6}\u{1F1FA}", tz:"AEST" },
+  { key:"tokyo",  name:"Tokyo",    open:0,  close:9,  emoji:"\u{1F1EF}\u{1F1F5}", tz:"JST"  },
+  { key:"london", name:"London",   open:7,  close:16, emoji:"\u{1F1EC}\u{1F1E7}", tz:"GMT"  },
+  { key:"newyork",name:"New York", open:13, close:22, emoji:"\u{1F1FA}\u{1F1F8}", tz:"EST"  },
+];
+
+function hourInSession(h, open, close) {
+  if (open < close) return h >= open && h < close;
+  // wraps midnight (e.g. Sydney 21->6)
+  return h >= open || h < close;
+}
+
+function getSessionState() {
+  const now = new Date();
+  const h = now.getUTCHours();
+  const m = now.getUTCMinutes();
+  const nowDec = h + m/60;
+
+  const active = [];
+  const sessions = SESSIONS.map(s => {
+    const open = hourInSession(h, s.open, s.close);
+    active.push(open ? s.key : null);
+    // hours until next open (if closed) or until close (if open)
+    let nextEvent, nextEventType;
+    if (open) {
+      let hrsToClose = (s.close - nowDec + 24) % 24;
+      nextEvent = hrsToClose; nextEventType = "closes";
+    } else {
+      let hrsToOpen = (s.open - nowDec + 24) % 24;
+      nextEvent = hrsToOpen; nextEventType = "opens";
+    }
+    return { ...s, open, nextEvent:+nextEvent.toFixed(2), nextEventType };
+  });
+
+  const activeKeys = active.filter(Boolean);
+
+  // Killzone: London/NY overlap = 13:00-16:00 UTC (highest volatility)
+  const londonNYOverlap = hourInSession(h,13,16);
+  // London open burst 7-9, NY open burst 13-15
+  const londonOpen = nowDec >= 7 && nowDec < 9;
+  const nyOpen = nowDec >= 13 && nowDec < 15;
+
+  let volatility, volNote;
+  if (londonNYOverlap) {
+    volatility = "PEAK";
+    volNote = "London/New York overlap — the highest-volatility, highest-liquidity window of the day. Best for breakouts; expect fast moves.";
+  } else if (londonOpen) {
+    volatility = "HIGH";
+    volNote = "London open — volatility picks up sharply. Forex and gold are most active now.";
+  } else if (nyOpen) {
+    volatility = "HIGH";
+    volNote = "New York open — US markets active, strong moves in indices, USD pairs and gold.";
+  } else if (activeKeys.includes("london") || activeKeys.includes("newyork")) {
+    volatility = "MODERATE";
+    volNote = "Western session active — decent liquidity and movement.";
+  } else if (activeKeys.includes("tokyo") || activeKeys.includes("sydney")) {
+    volatility = "LOW";
+    volNote = "Asian session — typically quieter and more range-bound. Mean-reversion setups favored over breakouts.";
+  } else {
+    volatility = "LOW";
+    volNote = "Between major sessions — thin liquidity, choppy conditions. Caution advised.";
+  }
+
+  // Expected regime hint based on session
+  const regimeHint = (volatility==="PEAK"||volatility==="HIGH") ? "trending/breakout conditions more likely"
+                    : "ranging conditions more likely";
+
+  return {
+    utcHour: h, utcMinute: m,
+    sessions,
+    activeKeys,
+    volatility, volNote, regimeHint,
+    killzone: londonNYOverlap,
+  };
+}
+
 // ════════════ TELEGRAM ALERTS ════════════
 const BOT_TOKEN = process.env.BOT_TOKEN || "";       // set in Render env vars
 const CHANNEL_ID = process.env.CHANNEL_ID || "";     // e.g. @yourchannel or -100123...
@@ -757,7 +836,10 @@ async function checkBreakingNews() {
 
 // Daily digest — top 3 conviction setups per category
 async function sendDailyDigest() {
+  const sess = getSessionState();
+  const activeNames = sess.sessions.filter(s=>s.open).map(s=>s.emoji+" "+s.name).join(", ") || "between sessions";
   let msg = `🎯 <b>SIGNAL.AI DAILY DIGEST</b>\n<i>${new Date().toUTCString()}</i>\n\n`;
+  msg += `🕐 <b>Active now:</b> ${activeNames}\n⚡ <b>Volatility:</b> ${sess.volatility} — ${sess.regimeHint}\n\n`;
   for (const cls of Object.keys(CLASS_ASSETS)) {
     try {
       const assets = CLASS_ASSETS[cls];
@@ -853,6 +935,10 @@ app.get('/api/test/mychatid', async (req,res)=>{
     }
     res.json({ok:true,note:"Copy the 'id' of your chat below and set it as CHANNEL_ID in Render.",chats:unique});
   }catch(err){ res.status(500).json({ok:false,error:err.message}); }
+});
+
+app.get('/api/sessions',(req,res)=>{
+  res.json({ok:true, sessions:getSessionState()});
 });
 
 app.get('/health',(req,res)=>{
