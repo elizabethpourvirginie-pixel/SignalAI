@@ -99,6 +99,8 @@ body{background:#0A0A0F;color:#F0F0F0;font-family:'DM Sans',sans-serif;min-heigh
 .rr-math{font-family:'DM Mono',monospace;font-size:12.5px;color:#C8C8D0;margin-bottom:5px;}
 .rr-note{font-family:'DM Sans',sans-serif;font-size:13.5px;color:#C8C8D0;line-height:1.45;}
 .price-age{font-family:'DM Mono',monospace;font-size:10.5px;color:#FFB347;margin-left:6px;}
+.edge-note{font-family:'DM Sans',sans-serif;font-size:11.5px;line-height:1.5;margin-top:8px;padding-top:8px;}
+.edge-note b{color:inherit;}
 .gate-note{font-family:'DM Sans',sans-serif;font-size:13.5px;color:#FFB347;line-height:1.45;margin-top:8px;padding-top:8px;border-top:1px solid rgba(255,179,71,0.15);}
 .action-box{border-radius:10px;padding:10px 12px;position:relative;overflow:hidden;}
 .action-box-label{font-family:'DM Mono',monospace;font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;margin-bottom:4px;opacity:0.7;}
@@ -176,6 +178,14 @@ canvas{display:block;width:100%;}
 .bt-val{font-family:'Syne',sans-serif;font-size:20px;font-weight:800;letter-spacing:-0.02em;}
 .bt-lbl{font-family:'DM Mono',monospace;font-size:10px;color:#909098;text-transform:uppercase;letter-spacing:0.08em;margin-top:2px;}
 .bt-note{font-family:'DM Mono',monospace;font-size:10.5px;color:#808088;line-height:1.5;letter-spacing:0.02em;}
+/* ── EDGE SCORES ── */
+.edge-row{display:flex;align-items:center;gap:10px;padding:9px 12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:8px;margin-bottom:5px;}
+.edge-asset{font-family:'DM Mono',monospace;font-size:12px;color:#E0E0E8;width:80px;flex-shrink:0;}
+.edge-bar-track{flex:1;height:8px;background:rgba(255,255,255,0.06);border-radius:4px;overflow:hidden;position:relative;}
+.edge-bar-fill{height:100%;border-radius:4px;}
+.edge-bar-mid{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:rgba(255,255,255,0.2);}
+.edge-stat{font-family:'DM Mono',monospace;font-size:11px;width:74px;text-align:right;flex-shrink:0;}
+.edge-tier-badge{font-family:'DM Mono',monospace;font-size:8px;padding:2px 6px;border-radius:4px;flex-shrink:0;letter-spacing:0.04em;}
 /* ── TRACK RECORD ── */
 .track-overall{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px;}
 .track-big{background:rgba(0,212,170,0.06);border:1px solid rgba(0,212,170,0.2);border-radius:10px;padding:12px 6px;text-align:center;}
@@ -298,6 +308,16 @@ canvas{display:block;width:100%;}
     <div id="trackPanel"></div>
   </div>
 
+  <!-- EDGE SCORES OVERVIEW -->
+  <div class="assets-section">
+    <div class="section-row">
+      <div class="section-label" style="margin-bottom:0">Strategy Edge by Asset</div>
+      <button class="scan-btn" id="edgeBtn" onclick="loadEdges()">↻ LOAD</button>
+    </div>
+    <p class="section-note">How well the strategy has performed on each asset over 30 days. Higher edge = the app trusts its signals more on that asset. This is what powers the self-adjusting confidence.</p>
+    <div id="edgePanel"></div>
+  </div>
+
   <!-- POSITION SIZE CALCULATOR -->
   <div class="assets-section">
     <div class="section-label">Position Size Calculator <span class="info-icon" onclick="showInfo(&#39;position_size&#39;)">i</span></div>
@@ -368,7 +388,7 @@ function fmtPrice(n){
   if(n>=1)    return n.toFixed(4);
   return n.toFixed(5);
 }
-function buildAnalysis(quote, mtf, verdict, bars, sr, vp, corr, regime){
+function buildAnalysis(quote, mtf, verdict, bars, sr, vp, corr, regime, edge){
   // Server now does the heavy lifting. Build levels from real ATR + verdict.
   const price = quote.price;
   const signal = verdict.signal;
@@ -462,7 +482,7 @@ function buildAnalysis(quote, mtf, verdict, bars, sr, vp, corr, regime){
     levels:{entryNum,targetNum,slNum,supportNum,rr,stopIsStructural},
     confidence:verdict.confidence,timestamp:ts, rationale,
     verdict, mtf, sr: sr||{supports:[],resistances:[]},
-    vp: vp||null, corr: corr||null, regime: regime||null,
+    vp: vp||null, corr: corr||null, regime: regime||null, edge: edge||null,
   };
 }
 
@@ -691,6 +711,14 @@ function renderCard(quote, bars, analysis, isRefresh){
           <div class="conviction-bar-track"><div class="conviction-bar-fill" style="width:${barPct}%;background:${tierColor};box-shadow:0 0 8px ${tierColor}88"></div></div>
           <div class="conviction-desc">${tierDesc}</div>
           ${gateNote}
+          ${(()=>{
+            const e=analysis.edge;
+            if(!e||!e.note)return"";
+            const tierColors={strong:"#00D4AA",positive:"#7EE8A2",neutral:"#909098",weak:"#FFB347","no-edge":"#FF8C69",untested:"#909098"};
+            const ec=tierColors[e.tier]||"#909098";
+            const icon=e.mult>1?"📈":e.mult<1?"📉":"•";
+            return `<div class="edge-note" style="color:${ec};border-top:1px solid ${hexAlpha(ec,0.15)}">${icon} <b>Edge-adjusted:</b> ${e.note}</div>`;
+          })()}
         </div>`;
       })()}
       <!-- MARKET REGIME -->
@@ -915,7 +943,7 @@ function startRefresh(){
       const json=await res.json();
       if(!json.ok)return;
       liveQuote=json.quote;liveBars=json.bars;
-      liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr,json.vp,json.corr,json.regime);
+      liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr,json.vp,json.corr,json.regime,json.edge);
       renderCard(liveQuote,liveBars,liveAnalysis,true);
       renderAssets();countdown=30;
     }catch(e){console.error("Refresh error",e);}
@@ -932,7 +960,7 @@ async function analyze(asset){
     const json=await res.json();
     if(!json.ok)throw new Error(json.error||"Server error");
     liveQuote=json.quote;liveBars=json.bars;
-    liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr,json.vp,json.corr,json.regime);
+    liveAnalysis=buildAnalysis(json.quote,json.mtf,json.verdict,json.bars,json.sr,json.vp,json.corr,json.regime,json.edge);
     renderCard(liveQuote,liveBars,liveAnalysis,false);
     renderAssets();startRefresh();
     // Kick off backtest in background
@@ -1554,6 +1582,40 @@ function renderSessions(){
 // Refresh sessions every minute
 loadSessions();
 setInterval(loadSessions, 60000);
+
+// ── EDGE SCORES OVERVIEW ──
+async function loadEdges(){
+  const btn=document.getElementById("edgeBtn");
+  const panel=document.getElementById("edgePanel");
+  btn.disabled=true;btn.textContent="LOADING…";
+  panel.innerHTML=`<div class="loader-wrap" style="padding:16px 0"><div class="loader-ring" style="width:36px;height:36px"><div class="pulse-dot-anim" style="width:7px;height:7px"></div></div><p class="loader-text">Measuring strategy edge on every asset…</p></div>`;
+  try{
+    const res=await fetch(`${SERVER}/api/edges`);
+    const json=await res.json();
+    if(!json.ok||!json.edges)throw new Error("no data");
+    // Sort assets by win rate descending
+    const entries=Object.entries(json.edges).sort((a,b)=>(b[1].winRate||0)-(a[1].winRate||0));
+    const tierColors={strong:"#00D4AA",positive:"#7EE8A2",neutral:"#909098",weak:"#FFB347","no-edge":"#FF8C69",untested:"#666"};
+    const tierLabels={strong:"STRONG",positive:"EDGE",neutral:"NEUTRAL",weak:"WEAK","no-edge":"NO EDGE",untested:"UNTESTED"};
+    panel.innerHTML=entries.map(([asset,e])=>{
+      const wr=e.winRate||0;
+      const tc=tierColors[e.tier]||"#666";
+      const fillPct=Math.max(3,Math.min(100,wr));
+      return `<div class="edge-row">
+        <span class="edge-asset">${asset}</span>
+        <div class="edge-bar-track">
+          <div class="edge-bar-fill" style="width:${fillPct}%;background:${tc}"></div>
+          <div class="edge-bar-mid"></div>
+        </div>
+        <span class="edge-stat" style="color:${tc}">${e.trades?wr+"% · "+e.trades+"t":"—"}</span>
+        <span class="edge-tier-badge" style="background:${hexAlpha(tc,0.15)};color:${tc}">${tierLabels[e.tier]||"—"}</span>
+      </div>`;
+    }).join("")+`<div class="track-disclaimer">The midline marks 50% (no edge). Bars to the right = the strategy has been winning on that asset; near or below the line = no proven edge there. Confidence on live signals is adjusted up or down based on these numbers. Past performance never guarantees future results.</div>`;
+  }catch(e){
+    panel.innerHTML=`<div class="error-box">Could not load edge scores — try again.</div>`;
+  }
+  btn.disabled=false;btn.textContent="↻ LOAD";
+}
 
 updateTheme();renderTabs();renderAssets();
 </script>
