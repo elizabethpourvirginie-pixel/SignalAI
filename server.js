@@ -482,6 +482,68 @@ async function backtest(ticker) {
   };
 }
 
+// ════════════ SELF-LEARNING EDGE SCORES ════════════
+// Caches each asset's recent backtest performance and converts it into a
+// confidence multiplier. HONEST: this is past performance weighting future
+// confidence — it shows what HAS worked, not a guarantee of what WILL work.
+const edgeCache = {};        // asset -> { winRate, trades, avgReturn, multiplier, note, ts }
+const EDGE_TTL = 30 * 60 * 1000;  // refresh each asset's edge every 30 min
+
+function edgeMultiplierFrom(winRate, trades) {
+  // Not enough trades to judge → neutral (no adjustment)
+  if (!trades || trades < 8) return { mult: 1.0, tier: "untested" };
+  // Map win rate to a multiplier. 50% = no edge = 1.0. Above lifts, below cuts.
+  // Capped so it nudges rather than dominates the live signal.
+  if (winRate >= 62) return { mult: 1.15, tier: "strong" };
+  if (winRate >= 56) return { mult: 1.08, tier: "positive" };
+  if (winRate >= 50) return { mult: 1.0,  tier: "neutral" };
+  if (winRate >= 44) return { mult: 0.90, tier: "weak" };
+  return { mult: 0.80, tier: "no-edge" };
+}
+
+async function getEdgeScore(asset) {
+  const now = Date.now();
+  if (edgeCache[asset] && (now - edgeCache[asset].ts) < EDGE_TTL) return edgeCache[asset];
+  const ticker = SYMBOL_MAP[asset];
+  if (!ticker) return null;
+  let data;
+  try {
+    const bt = await backtest(ticker);
+    if (!bt) { data = { winRate:0, trades:0, avgReturn:0, mult:1.0, tier:"untested", note:"Not enough history to measure edge yet." }; }
+    else {
+      const { mult, tier } = edgeMultiplierFrom(bt.winRate, bt.trades);
+      let note;
+      if (tier === "untested") note = `Only ${bt.trades} historical setups — not enough to judge. No adjustment applied.`;
+      else if (tier === "strong") note = `This strategy has won ${bt.winRate}% on ${asset} over 30 days — strong recent edge, confidence boosted.`;
+      else if (tier === "positive") note = `Strategy has hit ${bt.winRate}% on ${asset} recently — modest edge, confidence slightly boosted.`;
+      else if (tier === "neutral") note = `Strategy is roughly break-even (${bt.winRate}%) on ${asset} lately — no adjustment.`;
+      else if (tier === "weak") note = `Strategy has only hit ${bt.winRate}% on ${asset} recently — weak edge, confidence reduced.`;
+      else note = `Strategy has won just ${bt.winRate}% on ${asset} over 30 days — no proven edge here, confidence cut. Trade with caution.`;
+      data = { winRate:bt.winRate, trades:bt.trades, avgReturn:bt.avgReturn, mult, tier, note };
+    }
+  } catch(e) {
+    data = { winRate:0, trades:0, avgReturn:0, mult:1.0, tier:"untested", note:"Could not measure edge." };
+  }
+  data.ts = now;
+  edgeCache[asset] = data;
+  return data;
+}
+
+// Edge scores for every asset in a class (for the overview panel)
+async function allEdgeScores() {
+  const allAssets = Object.values(CLASS_ASSETS).flat();
+  const out = {};
+  for (let i=0;i<allAssets.length;i+=2){
+    const batch=allAssets.slice(i,i+2);
+    await Promise.allSettled(batch.map(async a=>{
+      const e=await getEdgeScore(a);
+      if(e)out[a]={winRate:e.winRate,trades:e.trades,tier:e.tier,mult:e.mult};
+    }));
+    if(i+2<allAssets.length)await new Promise(r=>setTimeout(r,250));
+  }
+  return out;
+}
+
 // ════════════ TRACK RECORD ════════════
 // Reconstructs the bot's REAL historical performance by replaying the exact
 // confluence strategy over each asset's actual price history. This is honest:
@@ -941,6 +1003,14 @@ app.get('/api/sessions',(req,res)=>{
   res.json({ok:true, sessions:getSessionState()});
 });
 
+// All-asset edge scores for the overview panel
+app.get('/api/edges', async (req,res)=>{
+  try{
+    const edges=await allEdgeScores();
+    res.json({ok:true, edges});
+  }catch(err){ res.status(500).json({ok:false,error:err.message}); }
+});
+
 app.get('/health',(req,res)=>{
   // Every keep-alive ping also runs the scheduler
   runScheduledTasks().catch(()=>{});
@@ -1009,7 +1079,17 @@ app.get('/api/analyze/:asset', async (req,res)=>{
       if(corr.verdict==="confirmed") verdict.confidence=Math.min(92, verdict.confidence+6);
       else if(corr.verdict==="conflicted") verdict.confidence=Math.max(40, verdict.confidence-10);
     }
-    res.json({ok:true, quote, mtf, verdict, sr, vp, corr, regime:mtf.regime, bars:mtf.bars});
+    // SELF-LEARNING: weight confidence by the strategy's proven edge on THIS asset
+    let edge=null;
+    try {
+      edge=await getEdgeScore(asset);
+      if(edge && verdict && !verdict.fallback && verdict.signal!=="NEUTRAL"){
+        const adjusted=Math.round(verdict.confidence*edge.mult);
+        verdict.confidence=Math.max(35, Math.min(95, adjusted));
+        verdict.edgeApplied=edge.mult!==1.0;
+      }
+    } catch(e){}
+    res.json({ok:true, quote, mtf, verdict, sr, vp, corr, regime:mtf.regime, edge, bars:mtf.bars});
   }catch(err){ res.status(500).json({ok:false,error:err.message}); }
 });
 
