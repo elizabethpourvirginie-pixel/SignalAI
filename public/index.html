@@ -198,10 +198,17 @@ canvas{display:block;width:100%;}
 /* ── CALCULATOR ── */
 .calc-form{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
 .calc-row{display:flex;flex-direction:column;gap:4px;}
-.calc-label{font-family:'DM Mono',monospace;font-size:10.5px;color:#A0A0AC;text-transform:uppercase;letter-spacing:0.06em;}
-.calc-result{background:rgba(0,212,170,0.06);border:1px solid rgba(0,212,170,0.25);border-radius:10px;padding:12px;margin-top:10px;animation:fadeUp 0.4s ease;}
-.calc-result-main{font-family:'Syne',sans-serif;font-size:18px;font-weight:800;color:#00D4AA;margin-bottom:6px;}
-.calc-result-line{font-family:'DM Mono',monospace;font-size:12.5px;color:#E0E0E8;line-height:1.7;}
+.calc-label{font-family:'DM Mono',monospace;font-size:11.5px;color:#E0E0E8;letter-spacing:0.02em;font-weight:600;}
+.calc-hint{font-family:'DM Sans',sans-serif;font-size:10.5px;color:#909098;line-height:1.3;}
+.calc-result{background:rgba(0,212,170,0.06);border:1px solid rgba(0,212,170,0.25);border-radius:10px;padding:14px;margin-top:10px;animation:fadeUp 0.4s ease;}
+.calc-result-headline{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;color:#00D4AA;letter-spacing:-0.02em;}
+.calc-result-headline b{color:#00D4AA;}
+.calc-plain{font-family:'DM Sans',sans-serif;font-size:13.5px;color:#C8C8D0;margin-top:3px;}
+.calc-divider{height:1px;background:rgba(255,255,255,0.08);margin:12px 0;}
+.calc-keyrow{display:flex;justify-content:space-between;align-items:center;padding:6px 0;}
+.calc-key-label{font-family:'DM Sans',sans-serif;font-size:13px;color:#E0E0E8;}
+.calc-key-val{font-family:'Syne',sans-serif;font-size:17px;font-weight:800;letter-spacing:-0.01em;}
+.calc-bottom-note{font-family:'DM Sans',sans-serif;font-size:11.5px;color:#A0A0AC;line-height:1.55;margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,0.06);}
 .calc-warn{font-family:'DM Mono',monospace;font-size:11.5px;color:#FFB347;margin-top:8px;line-height:1.5;}
 /* ── HIGH CONVICTION ── */
 .section-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
@@ -321,26 +328,30 @@ canvas{display:block;width:100%;}
   <!-- POSITION SIZE CALCULATOR -->
   <div class="assets-section">
     <div class="section-label">Position Size Calculator <span class="info-icon" onclick="showInfo(&#39;position_size&#39;)">i</span></div>
-    <p class="section-note">Calculates your ideal position size based on account risk.</p>
+    <p class="section-note">Tells you how much to buy so that if your stop loss is hit, you only lose a small, planned amount — never your whole account.</p>
     <div class="calc-form">
       <div class="calc-row">
-        <label class="calc-label">Account balance ($)</label>
+        <label class="calc-label">💰 Your account size</label>
         <input class="j-input" id="cBal" placeholder="e.g. 1000" inputmode="decimal"/>
+        <span class="calc-hint">Total money in your trading account</span>
       </div>
       <div class="calc-row">
-        <label class="calc-label">Risk per trade (%)</label>
-        <input class="j-input" id="cRisk" placeholder="e.g. 2" inputmode="decimal" value="2"/>
+        <label class="calc-label">🎯 Risk per trade</label>
+        <input class="j-input" id="cRisk" placeholder="2" inputmode="decimal" value="2"/>
+        <span class="calc-hint">% you're willing to lose if wrong (1-2% is safe)</span>
       </div>
       <div class="calc-row">
-        <label class="calc-label">Entry price</label>
+        <label class="calc-label">📍 Entry price</label>
         <input class="j-input" id="cEntry" placeholder="e.g. 35.00" inputmode="decimal"/>
+        <span class="calc-hint">Price you're buying/selling at</span>
       </div>
       <div class="calc-row">
-        <label class="calc-label">Stop loss price</label>
+        <label class="calc-label">🛑 Stop loss price</label>
         <input class="j-input" id="cStop" placeholder="e.g. 34.00" inputmode="decimal"/>
+        <span class="calc-hint">Price where you'd exit if it goes wrong</span>
       </div>
     </div>
-    <button class="j-add" onclick="calcPosition()" style="margin-top:8px">CALCULATE POSITION SIZE</button>
+    <button class="j-add" onclick="calcPosition()" style="margin-top:8px">CALCULATE</button>
     <div id="calcResult"></div>
   </div>
 
@@ -1405,10 +1416,10 @@ function calcPosition(){
   const stop=parseFloat(document.getElementById("cStop").value);
   const out=document.getElementById("calcResult");
   if(isNaN(bal)||isNaN(riskPct)||isNaN(entry)||isNaN(stop)){
-    out.innerHTML=`<div class="calc-warn">⚠ Fill in all four fields with numbers.</div>`;return;
+    out.innerHTML=`<div class="calc-warn">⚠ Please fill in all four boxes with numbers.</div>`;return;
   }
   if(entry===stop){
-    out.innerHTML=`<div class="calc-warn">⚠ Entry and stop loss can't be the same price.</div>`;return;
+    out.innerHTML=`<div class="calc-warn">⚠ Your entry and stop loss can't be the same price — there'd be no room for a stop.</div>`;return;
   }
   const riskAmount=bal*(riskPct/100);
   const riskPerUnit=Math.abs(entry-stop);
@@ -1416,19 +1427,28 @@ function calcPosition(){
   const positionValue=units*entry;
   const lossIfStopped=units*riskPerUnit;
   const stopDistPct=(riskPerUnit/entry)*100;
+  const dir=stop<entry?"BUY":"SELL";
 
   let warn="";
-  if(riskPct>3)warn=`<div class="calc-warn">⚠ Risking ${riskPct}% per trade is aggressive. Most professionals risk 1-2%. At ${riskPct}%, a losing streak of 10 trades would cut your account roughly in half.</div>`;
-  else if(positionValue>bal)warn=`<div class="calc-warn">⚠ This position (${fmtMoney(positionValue)}) is larger than your account — you'd need leverage. Make sure you understand the liquidation risk.</div>`;
+  if(riskPct>3)warn=`<div class="calc-warn">⚠ Risking ${riskPct}% per trade is high. Most pros risk 1-2%. At ${riskPct}%, ten losses in a row would cut your account roughly in half.</div>`;
+  else if(positionValue>bal*3)warn=`<div class="calc-warn">⚠ This position is over 3× your account — that's heavy leverage. Be sure you understand the liquidation risk.</div>`;
 
   out.innerHTML=`<div class="calc-result">
-    <div class="calc-result-main">Trade ${units>=1?units.toFixed(2):units.toFixed(4)} units</div>
-    <div class="calc-result-line">
-      Position value: <b style="color:#F0F0F0">${fmtMoney(positionValue)}</b><br/>
-      You risk: <b style="color:#FF4757">${fmtMoney(lossIfStopped)}</b> (${riskPct}% of account) if stopped out<br/>
-      Stop distance: <b style="color:#FFB347">${stopDistPct.toFixed(2)}%</b> from entry<br/>
-      Max loss is capped — this is how you survive losing streaks.
+    <div class="calc-result-headline">Buy <b>${units>=1?units.toFixed(2):units.toFixed(4)}</b> units</div>
+    <div class="calc-plain">That's a <b style="color:#E0E0E8">${fmtMoney(positionValue)}</b> position.</div>
+
+    <div class="calc-divider"></div>
+
+    <div class="calc-keyrow">
+      <span class="calc-key-label">✅ If you're right (hit target)</span>
+      <span class="calc-key-val" style="color:#00D4AA">+${fmtMoney(lossIfStopped*2)}</span>
     </div>
+    <div class="calc-keyrow">
+      <span class="calc-key-label">🛑 If you're wrong (hit stop)</span>
+      <span class="calc-key-val" style="color:#FF4757">−${fmtMoney(lossIfStopped)}</span>
+    </div>
+
+    <div class="calc-bottom-note">Your worst case is losing <b style="color:#FF4757">${fmtMoney(lossIfStopped)}</b> — exactly ${riskPct}% of your account, no more. The stop sits <b>${stopDistPct.toFixed(2)}%</b> away from your entry. This is how you survive a losing streak: every loss is small and planned.</div>
     ${warn}
   </div>`;
 }
@@ -1483,7 +1503,7 @@ const GLOSSARY = {
   support:{term:"Support & Resistance",body:"<b>Support</b> = a price level where buyers have stepped in before (a floor). <b>Resistance</b> = where sellers have appeared (a ceiling). Price often reacts at these levels, making them useful for entries and exits."},
   volume_profile:{term:"Volume Profile",body:"Shows the price levels where the most trading happened — where big players are positioned. The 'Point of Control' often acts like a magnet, pulling price back toward it."},
   divergence:{term:"Divergence",body:"When price makes a new high (or low) but momentum doesn't follow. It's an early warning that the current move may be running out of steam and could reverse."},
-  position_size:{term:"Position Size",body:"How much to buy or sell. Calculated so that if your stop loss is hit, you only lose your chosen % (1-2%) of your account. Correct sizing is what lets you survive a losing streak."},
+  position_size:{term:"Position Size",body:"How much to buy or sell. <b>Example:</b> with a $1,000 account risking 2%, you've decided your worst case is losing $20. The calculator works out how many units that means based on how far your stop is. Same $20 loss whether your stop is close or far — you just buy fewer units when the stop is further away. This is the single most important habit for not blowing up your account."},
 };
 
 function showInfo(key){
